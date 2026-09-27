@@ -393,7 +393,7 @@ func (c *Client) Post(url string, body []byte) (*Response, error)
 DefaultClient = &Client{
     Timeout:    30 * time.Second,
     MaxRetries: 3,
-    UserAgent:  "VulnScanner/1.0",
+    UserAgent:  "AMAN/1.0",
 }
 ```
 
@@ -423,7 +423,7 @@ func (c *Client) Post(url string, body []byte) (*Response, error)
 DefaultClient = &Client{
     Timeout:    30 * time.Second,
     MaxRetries: 3,
-    UserAgent:  "VulnScanner/1.0",
+    UserAgent:  "AMAN/1.0",
 }
 ```
 

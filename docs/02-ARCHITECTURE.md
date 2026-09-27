@@ -1,11 +1,11 @@
-# Arsitektur VulnScanner
+# Arsitektur AMAN
 
 ## Gambaran Besar
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         USER (CLI)                              │
-│                   $ vuln-scanner scan --target nginx            │
+│                   $ aman scan --target nginx            │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -95,7 +95,7 @@ INPUT                    PROCESS                    OUTPUT
 ## Struktur Direktori dan Penjelasan
 
 ```
-vuln-scanner/
+aman/
 │
 ├── cmd/                           ← 🌟 TITIK MASUK PROGRAM
 │   └── scanner/
@@ -317,7 +317,7 @@ Kenapa SQLite?
 
 ## Perbandingan dengan Trivy
 
-| Komponen | Trivy | VulnScanner (Kita) | Keterangan |
+| Komponen | Trivy | AMAN (Kita) | Keterangan |
 |---|---|---|---|
 | **Scanner** | Highly advanced (multi-type) | Sederhana (Docker, FS, HTTP) | Kita buat versi sederhana |
 | **Detector** | Parallel processing | Sequential (awal) | Perlu improvement |

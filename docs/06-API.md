@@ -460,11 +460,11 @@ import (
     "fmt"
     "log"
 
-    "vuln-scanner/pkg/database"
-    "vuln-scanner/pkg/detector"
-    "vuln-scanner/pkg/output"
-    "vuln-scanner/pkg/rule"
-    "vuln-scanner/pkg/scanner"
+    "aman/pkg/database"
+    "aman/pkg/detector"
+    "aman/pkg/output"
+    "aman/pkg/rule"
+    "aman/pkg/scanner"
 )
 
 func main() {

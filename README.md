@@ -1,8 +1,8 @@
-# VulnScanner — Simple Vulnerability Scanner
+# AMAN — Simple Vulnerability Scanner
 
 ## 📋 Deskripsi Singkat
 
-VulnScanner adalah tools vulnerability scanner sederhana yang terinspirasi dari **Trivy**, dibangun dengan bahasa **Go**, dan dirancang untuk orang awam yang ingin belajar cara membuat security tools.
+AMAN adalah tools vulnerability scanner sederhana yang terinspirasi dari **Trivy**, dibangun dengan bahasa **Go**, dan dirancang untuk orang awam yang ingin belajar cara membuat security tools.
 
 > **Note:** Dokumen ini menggunakan bahasa Indonesia untuk kemudahan pemahaman orang awam. Namun, code dan komentar menggunakan English.
 
@@ -32,7 +32,7 @@ VulnScanner adalah tools vulnerability scanner sederhana yang terinspirasi dari 
 ## 📂 Struktur Project
 
 ```
-vuln-scanner/
+aman/
 ├── cmd/              ← Entry point (titik awal program berjalan)
 ├── pkg/              ← Library kode yang bisa dipakai ulang (public)
 ├── internal/         ← Kode internal yang tidak di-export
@@ -63,8 +63,8 @@ vuln-scanner/
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/yourusername/vuln-scanner
-cd vuln-scanner
+git clone https://github.com/yourusername/aman
+cd aman
 
 # 2. Install dependencies
 go mod tidy

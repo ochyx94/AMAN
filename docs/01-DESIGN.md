@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Project Name:** VulnScanner  
+**Project Name:** AMAN  
 **Type:** Vulnerability Scanner Tool (CLI)  
 **Bahasa:** Go (Golang)  
 **Inspired by:** Trivy (aquasecurity/trivy)  
@@ -189,8 +189,8 @@ I want to scan a docker image from command line,
 So that I can find vulnerabilities before deploying
 
 Scenario:
-  $ vuln-scanner scan --type docker --target nginx:1.21
-  $ vuln-scanner scan -t docker -T nginx:1.21 --format json -o result.json
+  $ aman scan --type docker --target nginx:1.21
+  $ aman scan -t docker -T nginx:1.21 --format json -o result.json
 
 Acceptance:
   ✅ CLI menerima input type, target, format, output
@@ -202,12 +202,12 @@ Acceptance:
 
 ```
 As a developer,
-I want to integrate vuln-scanner ke CI/CD pipeline,
+I want to integrate aman ke CI/CD pipeline,
 So that I can auto-detect vulnerabilities di code
 
 Scenario:
-  $ cat Dockerfile | vuln-scanner scan --type docker -T myapp:build
-  $ curl http://example.com | vuln-scanner scan --type http
+  $ cat Dockerfile | aman scan --type docker -T myapp:build
+  $ curl http://example.com | aman scan --type http
 
 Acceptance:
   ✅ Bisa pipe input dari command lain
@@ -223,7 +223,7 @@ I want to add custom detection rules,
 So that I can detect specific vulnerability patterns
 
 Scenario:
-  $ vuln-scanner scan --type filesystem --target /app --rule-dir ./custom-rules/
+  $ aman scan --type filesystem --target /app --rule-dir ./custom-rules/
 
 Acceptance:
   ✅ Load custom rules dari directory

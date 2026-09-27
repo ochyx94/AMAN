@@ -38,7 +38,7 @@ import (
     "context"
     "testing"
 
-    "vuln-scanner/pkg/scanner"
+    "aman/pkg/scanner"
 )
 
 func TestFilesystemScanner_Scan(t *testing.T) {
@@ -106,7 +106,7 @@ package unit
 import (
     "testing"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 func TestSeverity_Ordering(t *testing.T) {
@@ -183,7 +183,7 @@ package unit
 import (
     "testing"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 func TestMatchCondition_VersionComparison(t *testing.T) {
@@ -232,8 +232,8 @@ import (
     "testing"
     "time"
 
-    "vuln-scanner/pkg/output"
-    "vuln-scanner/pkg/types"
+    "aman/pkg/output"
+    "aman/pkg/types"
 )
 
 func TestJSONFormatter_Format(t *testing.T) {
@@ -281,7 +281,7 @@ func TestTableFormatter_Format(t *testing.T) {
     output := string(bytes)
 
     // Verifikasi header ada
-    if !contains(output, "VulnScanner Result") {
+    if !contains(output, "AMAN Result") {
         t.Error("expected header in output")
     }
 
@@ -324,7 +324,7 @@ func containsHelper(s, substr string) bool {
 ### Jalankan Semua Test
 
 ```bash
-cd /root/.openclaw/workspace/vuln-scanner
+cd /root/.openclaw/workspace/aman
 
 # Semua test
 go test ./...
@@ -347,7 +347,7 @@ go test -v ./test/unit/...
 === RUN   TestFilesystemScanner_Name
 --- PASS: TestFilesystemScanner_Name (0.00s)
 PASS
-ok  	vuln-scanner/test/unit	0.067s
+ok  	aman/test/unit	0.067s
 ```
 
 ---
@@ -393,12 +393,12 @@ import (
     "os"
     "testing"
 
-    "vuln-scanner/pkg/scanner"
+    "aman/pkg/scanner"
 )
 
 func TestFilesystemScanner_Integration(t *testing.T) {
     // Buat temporary directory dengan test files
-    tmpDir, err := os.MkdirTemp("", "vuln-scanner-test")
+    tmpDir, err := os.MkdirTemp("", "aman-test")
     if err != nil {
         t.Fatalf("failed to create temp dir: %v", err)
     }

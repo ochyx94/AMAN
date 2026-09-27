@@ -31,7 +31,7 @@ Rekomendasi IDE:
 VSCode Setup:
 1. Install VSCode
 2. Install extension: "Go" oleh Go Team at Google
-3. Buka folder vuln-scanner
+3. Buka folder aman
 4. Auto-complete sudah tersedia
 ```
 
@@ -39,14 +39,14 @@ VSCode Setup:
 
 ```bash
 # Clone atau buat folder
-mkdir -p ~/projects/vuln-scanner
-cd ~/projects/vuln-scanner
+mkdir -p ~/projects/aman
+cd ~/projects/aman
 
 # Copy struktur folder yang sudah dibuat
 # (jika ada dari backup sebelumnya)
 
 # Initialize Go module
-go mod init vuln-scanner
+go mod init aman
 
 # Install dependencies
 go mod tidy
@@ -69,8 +69,8 @@ import (
     "github.com/spf13/cobra"
     "github.com/spf13/viper"
 
-    "vuln-scanner/pkg/output"
-    "vuln-scanner/pkg/scanner"
+    "aman/pkg/output"
+    "aman/pkg/scanner"
 )
 
 var (
@@ -84,13 +84,13 @@ var (
 func main() {
     // Setup cobra command
     rootCmd := &cobra.Command{
-        Use:   "vuln-scanner",
+        Use:   "aman",
         Short: "Simple vulnerability scanner",
-        Long:  `VulnScanner adalah tools vulnerability scanner sederhana.
+        Long:  `AMAN adalah tools vulnerability scanner sederhana.
 
 Contoh penggunaan:
-  vuln-scanner scan --type filesystem --target /app
-  vuln-scanner scan --type docker --target nginx:1.21`,
+  aman scan --type filesystem --target /app
+  aman scan --type docker --target nginx:1.21`,
         Run: runScan,
     }
 
@@ -239,7 +239,7 @@ package scanner
 import (
     "context"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // Scanner adalah interface untuk semua scanner
@@ -289,7 +289,7 @@ import (
     "path/filepath"
     "strings"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // FilesystemScanner implements Scanner untuk filesystem
@@ -391,7 +391,7 @@ package scanner
 import (
     "context"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // DockerScanner implements Scanner untuk Docker image
@@ -423,7 +423,7 @@ package scanner
 import (
     "context"
 
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // HTTPScanner implements Scanner untuk HTTP endpoint
@@ -449,7 +449,7 @@ func (s *HTTPScanner) Scan(ctx context.Context, target string) ([]types.Package,
 package output
 
 import (
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // OutputFormatter interface untuk semua formatter
@@ -480,7 +480,7 @@ package output
 
 import (
     "encoding/json"
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // JSONFormatter implements OutputFormatter untuk JSON
@@ -502,14 +502,14 @@ package output
 
 import (
     "fmt"
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // TableFormatter implements OutputFormatter untuk Tabel
 type TableFormatter struct{}
 
 func (t *TableFormatter) Format(result types.Result) ([]byte, error) {
-    output := fmt.Sprintf("=== VulnScanner Result ===\n")
+    output := fmt.Sprintf("=== AMAN Result ===\n")
     output += fmt.Sprintf("Target: %s\n", result.Target)
     output += fmt.Sprintf("Scanner: %s\n", result.ScannerType)
     output += fmt.Sprintf("Duration: %s\n", result.ScanDuration)
@@ -553,7 +553,7 @@ package output
 
 import (
     "encoding/json"
-    "vuln-scanner/pkg/types"
+    "aman/pkg/types"
 )
 
 // SARIFFormatter implements OutputFormatter untuk SARIF
@@ -568,7 +568,7 @@ func (s *SARIFFormatter) Format(result types.Result) ([]byte, error) {
             {
                 "tool": map[string]interface{}{
                     "driver": map[string]interface{}{
-                        "name":    "VulnScanner",
+                        "name":    "AMAN",
                         "version": "1.0.0",
                     },
                 },
@@ -632,19 +632,19 @@ func (s *SARIFFormatter) Extension() string {
 
 ```bash
 # Run build untuk check error
-go build -o vuln-scanner ./cmd/scanner
+go build -o aman ./cmd/scanner
 
 # Run help
-./vuln-scanner --help
+./aman --help
 
 # Run scan
-./vuln-scanner scan --target /tmp --type filesystem --format table
+./aman scan --target /tmp --type filesystem --format table
 ```
 
 ### Test Expected Output
 
 ```
-=== VulnScanner Result ===
+=== AMAN Result ===
 Target: /tmp
 Scanner: filesystem
 Duration: 0s
