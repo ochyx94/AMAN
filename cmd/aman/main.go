@@ -29,6 +29,8 @@ func main() {
 		jalankanPeriksa()
 	case "periksa-all", "scan-all":
 		jalankanPeriksaAll()
+	case "periksa-security":
+		jalankanPeriksaSecurity()
 	case "update":
 		jalankanUpdate()
 	case "serve":
@@ -471,31 +473,25 @@ Penggunaan:
   aman help              - Tampilkan bantuan ini
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target> [flags]
-                        - Jalankan pemeriksaan
-  aman periksa-all      - Scan semua di server (folder, docker, web)
+                        - Jalankan pemeriksaan CVE
+  aman periksa-all      - Scan semua di server (overview)
+  aman periksa-security - Scan keamanan server (port, SSL, service)
   aman update           - Update semua (CVE + AMAN)
   aman update --cve     - Update database CVE saja
   aman update --self    - Update aplikasi AMAN saja
   aman serve            - Jalankan sebagai service (HTTP API)
 
-Flags untuk periksa:
-  --online, -o          - Cek juga ke GitHub Advisories (butuh internet)
-  --format, -f json    - Output dalam format JSON
-
-Flags untuk serve:
-  --port, -p           - Port untuk HTTP server (default: 8080)
-
-Jenis pemeriksaan:
+Jenis Pemeriksaan CVE:
   folder                - Periksa folder/berkas di komputer
   docker                - Periksa gambar Docker (container image)
   web                   - Periksa website (URL)
 
 Contoh:
   aman periksa --jenis folder --sasaran /app
-  aman periksa --jenis folder --sasaran /app --online --format json
   aman periksa --jenis docker --sasaran nginx:1.21
   aman periksa --jenis web --sasaran https://contoh.com
-  aman periksa-all           - Scan semua folder/docker/web di server
+  aman periksa-all              - Quick overview server
+  aman periksa-security         - Security check (port, SSL, service)
   aman update
   aman serve --port 8080
 `)
@@ -626,4 +622,109 @@ func jalankanPeriksaAll() {
 	fmt.Println("  Scan Docker image: aman periksa --jenis docker --sasaran nginx:latest")
 	fmt.Println("  Scan website: aman periksa --jenis web --sasaran https://example.com")
 	fmt.Println("  Scan folder spesifik: aman periksa --jenis folder --sasaran /path/to/project")
+}
+
+func jalankanPeriksaSecurity() {
+	fmt.Println("========================================")
+	fmt.Println("AMAN - Security Scan")
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Memindai keamanan server...")
+	fmt.Println()
+
+	scanner := pemindai.NewSecurityScanner()
+	result := scanner.Run()
+
+	// Display results by severity
+	fmt.Println("========================================")
+	fmt.Println("HASIL SCAN")
+	fmt.Println("========================================")
+	fmt.Println()
+
+	if result.TotalIssues == 0 {
+		fmt.Println("✅ Tidak ada masalah keamanan ditemukan!")
+	} else {
+		// CRITICAL issues first
+		if result.Critical > 0 {
+			fmt.Printf("⚠️  CRITICAL: %d masalah\n", result.Critical)
+		}
+		if result.High > 0 {
+			fmt.Printf("⚠️  HIGH: %d masalah\n", result.High)
+		}
+		if result.Medium > 0 {
+			fmt.Printf("⚡ MEDIUM: %d masalah\n", result.Medium)
+		}
+		if result.Low > 0 {
+			fmt.Printf("ℹ️  LOW: %d masalah\n", result.Low)
+		}
+
+		fmt.Println()
+		fmt.Println("--- Detail Issues ---")
+		fmt.Println()
+
+		// Show CRITICAL first
+		for _, issue := range result.Issues {
+			if issue.Severity == "CRITICAL" {
+				printSecurityIssue(issue)
+			}
+		}
+		// Then HIGH
+		for _, issue := range result.Issues {
+			if issue.Severity == "HIGH" {
+				printSecurityIssue(issue)
+			}
+		}
+		// Then MEDIUM
+		for _, issue := range result.Issues {
+			if issue.Severity == "MEDIUM" {
+				printSecurityIssue(issue)
+			}
+		}
+		// Then LOW
+		for _, issue := range result.Issues {
+			if issue.Severity == "LOW" || issue.Severity == "INFO" {
+				printSecurityIssue(issue)
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("========================================")
+	fmt.Println("SUMMARY")
+	fmt.Println("========================================")
+	fmt.Printf("Total Issues:    %d\n", result.TotalIssues)
+	fmt.Printf("  CRITICAL:      %d\n", result.Critical)
+	fmt.Printf("  HIGH:          %d\n", result.High)
+	fmt.Printf("  MEDIUM:        %d\n", result.Medium)
+	fmt.Printf("  LOW:           %d\n", result.Low)
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Untuk detail CVE vulnerability scan:")
+	fmt.Println("  aman periksa --jenis folder --sasaran /app")
+	fmt.Println("  aman periksa --jenis docker --sasaran nginx:latest")
+}
+
+func printSecurityIssue(issue pemindai.SecurityIssue) {
+	icon := "⚠️"
+	switch issue.Severity {
+	case "CRITICAL":
+		icon = "🔴"
+	case "HIGH":
+		icon = "⚠️"
+	case "MEDIUM":
+		icon = "⚡"
+	case "LOW":
+		icon = "ℹ️"
+	}
+
+	fmt.Printf("%s [%s] %s\n", icon, issue.Severity, issue.Title)
+	fmt.Printf("   Kategori: %s\n", issue.Category)
+	if issue.Service != "" {
+		fmt.Printf("   Service: %s\n", issue.Service)
+	}
+	if issue.Port > 0 {
+		fmt.Printf("   Port: %d\n", issue.Port)
+	}
+	fmt.Printf("   Rekomendasi: %s\n", issue.Recommendation)
+	fmt.Println()
 }
