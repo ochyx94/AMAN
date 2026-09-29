@@ -354,6 +354,22 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		if len(hasil.TechStack) > 0 {
 			fmt.Printf("Tech:     %s\n", joinString(hasil.TechStack, ", "))
 		}
+		if len(hasil.Links) > 0 {
+			fmt.Printf("Links:    %d ditemukan\n", len(hasil.Links))
+			// Tampilkan sample links (max 5)
+			if len(hasil.Links) > 5 {
+				fmt.Println("Sample links:")
+				for i := 0; i < 5; i++ {
+					fmt.Printf("  - %s\n", hasil.Links[i])
+				}
+				fmt.Printf("  ... dan %d links lainnya\n", len(hasil.Links)-5)
+			} else {
+				fmt.Println("Links:")
+				for _, link := range hasil.Links {
+					fmt.Printf("  - %s\n", link)
+				}
+			}
+		}
 	}
 
 	// Deteksi kelemahan
@@ -405,8 +421,18 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		return
 	}
 
-	// Text format
-	fmt.Printf("\nDitemukan %d teknologi/paket\n\n", len(hasil.Paket))
+	// Text format - Tampilkan summary untuk web scan
+	if len(hasil.Links) > 0 || len(hasil.TechStack) > 0 {
+		fmt.Printf("\nDitemukan:\n")
+		if len(hasil.Links) > 0 {
+			fmt.Printf("  - %d Links\n", len(hasil.Links))
+		}
+		if len(hasil.TechStack) > 0 {
+			fmt.Printf("  - %d Tech Stack\n", len(hasil.TechStack))
+		}
+		fmt.Printf("  - %d Paket (untuk CVE check)\n", len(hasil.Paket))
+		fmt.Println()
+	}
 
 	if len(semuaKelemahan) > 0 {
 		fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
