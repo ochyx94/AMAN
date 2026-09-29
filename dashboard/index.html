@@ -330,49 +330,103 @@
                 return;
             }
             
-            addLog(`Memulai scan: ${target}`, 'info');
+            // Show loading
+            const container = document.getElementById('scanResults');
+            container.innerHTML = '<div class="result-item"><div class="result-header"><span class="result-title">Scanning...</span></div><div class="result-detail">Memindai target, harap tunggu...</div></div>';
+            addLog(`Memulai scan: ${target} (${type})`, 'info');
             
             try {
-                const resp = await fetch(`${API_BASE}/api/v1/scan`, {
+                let endpoint = '';
+                let body = {};
+                
+                if (type === 'web') {
+                    // Web scan - use scan-web endpoint
+                    endpoint = `${API_BASE}/api/v1/scan-web`;
+                    body = { url: target, check_online: true };
+                } else if (type === 'folder') {
+                    // Folder scan - use scan endpoint
+                    endpoint = `${API_BASE}/api/v1/scan`;
+                    body = { path: target, check_online: true };
+                } else {
+                    // Docker - not supported via API yet
+                    addLog(`Docker scan via API belum tersedia`, 'warn');
+                    return;
+                }
+                
+                const resp = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: target, check_online: true })
+                    body: JSON.stringify(body)
                 });
                 
                 if (resp.ok) {
                     const data = await resp.json();
-                    displayResults(data);
-                    addLog(`Scan selesai: ${data.vuln_count} kelemahan ditemukan`, 'info');
+                    displayResults(data, type);
+                    addLog(`Scan selesai untuk: ${target}`, 'info');
+                } else {
+                    const errorText = await resp.text();
+                    addLog(`Scan gagal: ${errorText}`, 'error');
+                    container.innerHTML = `<div class="result-item danger"><div class="result-header"><span class="result-title">Error</span></div><div class="result-detail">${errorText}</div></div>`;
                 }
             } catch (e) {
                 addLog(`Scan gagal: ${e.message}`, 'error');
+                container.innerHTML = `<div class="result-item danger"><div class="result-header"><span class="result-title">Error</span></div><div class="result-detail">${e.message}</div></div>`;
             }
         });
         
         // Display results
-        function displayResults(data) {
+        function displayResults(data, type) {
             const container = document.getElementById('scanResults');
-            const status = data.vuln_count > 0 ? 'danger' : 'safe';
             
-            let html = `
-                <div class="result-item ${status}">
-                    <div class="result-header">
-                        <span class="result-title">${data.path}</span>
-                        <span class="badge ${status}">${data.vuln_count} Kelemahan</span>
+            if (type === 'web') {
+                // Web scan results
+                const status = data.StatusCode === 200 ? 'safe' : 'warning';
+                let html = `
+                    <div class="result-item ${status}">
+                        <div class="result-header">
+                            <span class="result-title">${data.URL}</span>
+                            <span class="badge ${status}">${data.StatusCode || 'N/A'}</span>
+                        </div>
+                        <div class="result-detail">
+                            <strong>Title:</strong> ${data.Title || 'N/A'}<br>
+                            <strong>Server:</strong> ${data.Server || 'N/A'}<br>
+                            <strong>Links Found:</strong> ${data.Links ? data.Links.length : 0}<br>
+                            <strong>Tech Stack:</strong> ${data.TechStack ? data.TechStack.join(', ') : 'N/A'}
+                        </div>
                     </div>
-                    <div class="result-detail">
-                        ${data.packages_found} paket ditemukan | ${data.packages_found - data.vuln_count} aman
+                `;
+                container.innerHTML = html;
+                
+                // Update stats
+                document.getElementById('safeCount').textContent = data.StatusCode === 200 ? '1' : '0';
+                document.getElementById('warningCount').textContent = data.StatusCode !== 200 ? '1' : '0';
+                document.getElementById('dangerCount').textContent = '0';
+                document.getElementById('totalCount').textContent = '1';
+            } else {
+                // Folder scan results
+                const vulnCount = data.vuln_count || 0;
+                const packageCount = data.packages_found || 0;
+                const status = vulnCount > 0 ? 'danger' : 'safe';
+                
+                let html = `
+                    <div class="result-item ${status}">
+                        <div class="result-header">
+                            <span class="result-title">${data.path}</span>
+                            <span class="badge ${status}">${vulnCount} Kelemahan</span>
+                        </div>
+                        <div class="result-detail">
+                            ${packageCount} paket ditemukan | ${packageCount - vulnCount} aman
+                        </div>
                     </div>
-                </div>
-            `;
-            
-            container.innerHTML = html;
-            
-            // Update stats
-            document.getElementById('safeCount').textContent = data.packages_found - data.vuln_count;
-            document.getElementById('warningCount').textContent = '0';
-            document.getElementById('dangerCount').textContent = data.vuln_count;
-            document.getElementById('totalCount').textContent = data.packages_found;
+                `;
+                container.innerHTML = html;
+                
+                // Update stats
+                document.getElementById('safeCount').textContent = packageCount - vulnCount;
+                document.getElementById('warningCount').textContent = '0';
+                document.getElementById('dangerCount').textContent = vulnCount;
+                document.getElementById('totalCount').textContent = packageCount;
+            }
         }
         
         // Initial check
