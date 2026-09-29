@@ -78,6 +78,24 @@ cd AMAN
 sudo ./deploy/install.sh
 ```
 
+### Shell Completion
+
+ Aktifkan bash completion:
+
+```bash
+# Tambahkan ke ~/.bashrc
+echo 'source /path/ke/AMAN/shell-completion/aman.bash' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Untuk zsh, tambahkan ke ~/.zshrc:
+
+```bash
+autoload _u9t
+compdef _aman aman
+source /path/ke/AMAN/shell-completion/aman.zsh
+```
+
 ## Penggunaan
 
 ### 1. Basic Scan (Offline)
