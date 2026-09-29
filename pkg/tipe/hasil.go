@@ -60,6 +60,7 @@ type HasilPemindaian struct {
 	Sasaran         string
 	JenisPemindaian string
 	Kelemahan       []Kelemahan
+	Paket          []Paket // paket yang ditemukan saat scan
 	Durasi          float64    // dalam detik
 	Status          StatusVerdict
 	SumberCek       CheckSource
