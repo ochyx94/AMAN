@@ -198,9 +198,12 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target> [flags]
                         - Jalankan pemeriksaan
-  aman update --all     - Update database CVE semua ecosystem
+  aman update             - Update semua (CVE + AMAN)
+  aman update --all     - Update semua (CVE + AMAN)
+  aman update --cve     - Update database CVE saja
+  aman update --self    - Update aplikasi AMAN saja
   aman update --ecosystem <ecosystem>
-                        - Update database CVE satu ecosystem
+                        - Update CVE satu ecosystem saja
   aman serve            - Jalankan sebagai service (HTTP API)
 
 Flags untuk periksa:
@@ -227,7 +230,9 @@ Ecosystem untuk update:
 Contoh:
   aman periksa --jenis folder --sasaran /app
   aman periksa --jenis folder --sasaran /app --online
-  aman update --all
+  aman update              # Update semua (CVE + AMAN)
+  aman update --cve       # Update CVE saja
+  aman update --self      # Update AMAN saja
   aman serve --port 8080
 `)
 }
