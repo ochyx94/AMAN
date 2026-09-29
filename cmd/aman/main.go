@@ -26,6 +26,8 @@ func main() {
 		fmt.Printf("AMAN version %s\n", Version)
 	case "periksa":
 		jalankanPeriksa()
+	case "update":
+		jalankanUpdate()
 	default:
 		fmt.Printf("Perintah tidak dikenal: %s\n", os.Args[1])
 		fmt.Println("Ketik 'aman help' untuk bantuan.")
@@ -131,7 +133,9 @@ func pindaiFolder(sasaran string) {
 	} else {
 		fmt.Println("Tidak ada kelemahan diketemukan di database lokal.")
 		fmt.Println("Catatan: Hasil ini berdasarkan database lokal saja.")
-		fmt.Println("Untuk hasil lebih lengkap, butuh koneksi ke GitHub Advisories.")
+		fmt.Println("Untuk hasil lebih lengkap:")
+		fmt.Println("  1. Update database: aman update --ecosystem npm")
+		fmt.Println("  2. Scan lagi: aman periksa --jenis folder --sasaran /app")
 	}
 
 	fmt.Println("==============================")
@@ -146,15 +150,26 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target>
                         - Jalankan pemeriksaan
+  aman update --ecosystem <ecosystem>
+                        - Update database CVE
 
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer
   docker                - Periksa gambar turun (container image)
   web                   - Periksa alamat website
 
+Ecosystem untuk update:
+  npm                   - Node.js packages
+  pip                   - Python packages
+  go                    - Go packages
+  rubygems              - Ruby gems
+  cargo                 - Rust packages
+  maven                 - Java packages
+  nuget                 - .NET packages
+
 Contoh:
   aman periksa --jenis folder --sasaran /app
+  aman update --ecosystem npm
   aman periksa --jenis docker --sasaran nginx:1.21
-  aman periksa --jenis web --sasaran https://contoh.com
 `)
 }
