@@ -5,20 +5,20 @@ import (
 	"os"
 	"time"
 
+	"aman/pkg/deteksi"
 	"aman/pkg/pemindai"
+	"aman/pkg/tipe"
 )
 
 // Version AMAN
 const Version = "1.0.0"
 
 func main() {
-	// kalau tidak ada argument, tampilkan bantuan
 	if len(os.Args) == 1 {
 		printHelp()
 		os.Exit(0)
 	}
 
-	// cek argument
 	switch os.Args[1] {
 	case "help", "--help", "-h":
 		printHelp()
@@ -82,7 +82,6 @@ func jalankanPeriksa() {
 		os.Exit(1)
 	}
 
-	// hitung durasi
 	durasi := time.Since(mulai).Seconds()
 	fmt.Printf("\nSelesai dalam %.2f detik\n", durasi)
 }
@@ -91,6 +90,15 @@ func pindaiFolder(sasaran string) {
 	fmt.Printf("Memindai folder: %s\n", sasaran)
 	fmt.Println("==============================")
 
+	// Inisialisasi database
+	db, err := deteksi.InitDatabase()
+	if err != nil {
+		fmt.Printf("Error init database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Jalankan scanner
 	p := pemindai.PemindaiFolder{}
 	paketList, err := p.Pindai(sasaran)
 	if err != nil {
@@ -98,23 +106,35 @@ func pindaiFolder(sasaran string) {
 		os.Exit(1)
 	}
 
-	if len(paketList) == 0 {
-		fmt.Println("Tidak ditemukan paket.")
-		return
+	// Deteksi kelemahan
+	var semuaKelemahan []tipe.Kelemahan
+	for _, paket := range paketList {
+		kelemahan, err := deteksi.DeteksiPaket(db, paket)
+		if err != nil {
+			fmt.Printf("Warning: gagal cek kelemahan untuk %s: %v\n", paket.Nama, err)
+			continue
+		}
+		semuaKelemahan = append(semuaKelemahan, kelemahan...)
 	}
 
-	fmt.Printf("Ditemukan %d paket:\n\n", len(paketList))
+	// Tampilkan hasil
+	fmt.Printf("Ditemukan %d paket\n\n", len(paketList))
 
-	for i, pake := range paketList {
-		fmt.Printf("%d. %s (%s)\n", i+1, pake.Nama, pake.Jenis)
-		fmt.Printf("   Lokasi: %s\n", pake.Lokasi)
-		fmt.Printf("   Versi: %s\n\n", pake.Versi)
+	if len(semuaKelemahan) > 0 {
+		fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
+		for i, k := range semuaKelemahan {
+			fmt.Printf("%d. %s\n", i+1, k.ID)
+			fmt.Printf("   Judul: %s\n", k.Judul)
+			fmt.Printf("   Tingkat: %s\n", k.Tingkat)
+			fmt.Printf("   Paket: %s\n\n", k.Paket.Nama)
+		}
+	} else {
+		fmt.Println("Tidak ada kelemahan diketemukan di database lokal.")
+		fmt.Println("Catatan: Hasil ini berdasarkan database lokal saja.")
+		fmt.Println("Untuk hasil lebih lengkap, butuh koneksi ke GitHub Advisories.")
 	}
 
-	// Untuk sekarang, tampilkan placeholder kelemahan
 	fmt.Println("==============================")
-	fmt.Println("Kelemahan: (belum ada deteksi)")
-	fmt.Println("Untuk deteksi kelemahan, perlu tambahan database kelemahan.")
 }
 
 func printHelp() {

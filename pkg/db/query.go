@@ -8,8 +8,8 @@ import (
 )
 
 // QueryKelemahan mencari kelemahan berdasarkan nama paket
-func QueryKelemahan(db *sql.DB, paketNama string) ([]tipe.Kelemahan, error) {
-	rows, err := db.Query(`
+func QueryKelemahan(database *sql.DB, paketNama string) ([]tipe.Kelemahan, error) {
+	rows, err := database.Query(`
 		SELECT id, judul, penjelasan, tingkat, paket, versi_aman, referensi
 		FROM kelemahan
 		WHERE LOWER(paket) = LOWER(?)
@@ -41,9 +41,9 @@ func QueryKelemahan(db *sql.DB, paketNama string) ([]tipe.Kelemahan, error) {
 }
 
 // QueryKonfigurasiSalah mencari kelemahan konfigurasi
-func QueryKonfigurasiSalah(db *sql.DB, filePath string) ([]tipe.Kelemahan, error) {
+func QueryKonfigurasiSalah(database *sql.DB, filePath string) ([]tipe.Kelemahan, error) {
 	// Cek apakah file match dengan pattern
-	rows, err := db.Query(`
+	rows, err := database.Query(`
 		SELECT id, nama, penjelasan, tingkat, matcher, referensi
 		FROM konfigurasi_salah
 	`)
@@ -63,11 +63,11 @@ func QueryKonfigurasiSalah(db *sql.DB, filePath string) ([]tipe.Kelemahan, error
 		// Cek pattern
 		if matchFilePattern(filePath, matcher) {
 			kelemahan = append(kelemahan, tipe.Kelemahan{
-				ID:           id,
-				Judul:        nama,
-				Penjelasan:   penjelasan,
-				Tingkat:      tipe.TingkatDanger(tingkat),
-				Referensi:    refs,
+				ID:         id,
+				Judul:      nama,
+				Penjelasan: penjelasan,
+				Tingkat:    tipe.TingkatDanger(tingkat),
+				Referensi:  refs,
 			})
 		}
 	}
