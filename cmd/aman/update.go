@@ -184,7 +184,7 @@ func updateAmanSelf() {
 }
 
 func printUpdateHelp() {
-	fmt.Println(`
+	fmt.Print(`
 AMAN Update - Update Database CVE dan Aplikasi
 
 Penggunaan:

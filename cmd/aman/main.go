@@ -492,7 +492,7 @@ func joinString(items []string, separator string) string {
 }
 
 func printHelp() {
-	fmt.Println(`
+	fmt.Print(`
 AMAN - Alat deteksi kelemahan software
 
 Penggunaan:

@@ -24,7 +24,7 @@ type GitHubAdvisory struct {
 	} `json:"references"`
 	Vulnerabilities []struct {
 		Package            PackageInfo `json:"package"`
-		ecosystem         string     `json:"ecosystem"`
+		Ecosystem         string     `json:"ecosystem"`
 		VulnerableVersion string     `json:"vulnerable_version_range"`
 		FirstPatchedVersion string   `json:"first_patched_version"`
 	} `json:"vulnerabilities"`
