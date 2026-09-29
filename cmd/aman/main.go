@@ -86,7 +86,7 @@ func jalankanPeriksa() {
 	case "folder":
 		pindaiFolder(sasaran, checkOnline, format)
 	case "docker":
-		fmt.Println("Fitur docker belum tersedia")
+		pindaiDocker(sasaran, checkOnline, format)
 	case "web":
 		fmt.Println("Fitur web belum tersedia")
 	default:
@@ -126,30 +126,14 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 
 	// Deteksi kelemahan
 	var semuaKelemahan []tipe.Kelemahan
-	totalOnline := 0
 
 	for _, paket := range paketList {
-		kelemahan, sumber, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+		kelemahan, _, err := deteksi.DeteksiPaket(db, paket, checkOnline)
 		if err != nil {
 			fmt.Printf("Warning: gagal cek kelemahan untuk %s: %v\n", paket.Nama, err)
 			continue
 		}
 		semuaKelemahan = append(semuaKelemahan, kelemahan...)
-		if sumber == tipe.SourceGitHubAPI {
-			totalOnline++
-		}
-	}
-
-	// Tentukan status
-	var status tipe.StatusVerdict
-	if len(semuaKelemahan) > 0 {
-		status = tipe.StatusVerified
-	} else if checkOnline && totalOnline == 0 {
-		status = tipe.NoVulnFound
-	} else if checkOnline {
-		status = tipe.StatusVerified
-	} else {
-		status = tipe.StatusLocalOnly
 	}
 
 	// Format output
@@ -176,14 +160,91 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 
 		// Status verdict
 		fmt.Println("==============================")
-		switch status {
-		case tipe.StatusVerified:
-			fmt.Println("Status: ✅ TERVERIFIKASI (via GitHub Advisories)")
-		case tipe.StatusLocalOnly:
-			fmt.Println("Status: ⚠️  CEK LOKAL SAJA")
-			fmt.Println("Pesan: Update database dengan 'aman update --all' untuk hasil lebih lengkap")
-		case tipe.NoVulnFound:
+		if len(semuaKelemahan) > 0 {
+			fmt.Println("Status: ⚠️  DITEMUKAN KLEMAHAN")
+		} else if checkOnline {
 			fmt.Println("Status: ✅ TIDAK ADA KLEMAHAN DIKETAHUI")
+		} else {
+			fmt.Println("Status: ⚠️  CEK LOKAL SAJA")
+			fmt.Println("Pesan: Update database dengan 'aman update --cve' untuk hasil lebih lengkap")
+		}
+		fmt.Println("==============================")
+	}
+}
+
+func pindaiDocker(image string, checkOnline bool, format string) {
+	fmt.Printf("Memindai Docker image: %s\n", image)
+	if checkOnline {
+		fmt.Println("Mode: ONLINE (cek GitHub Advisories)")
+	} else {
+		fmt.Println("Mode: OFFLINE (database lokal saja)")
+	}
+	fmt.Println("==============================")
+
+	// Inisialisasi database
+	db, err := deteksi.InitDatabase()
+	if err != nil {
+		fmt.Printf("Error init database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Jalankan scanner
+	p := pemindai.PemindaiDocker{}
+	paketList, err := p.Pindai(image)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		fmt.Println()
+		fmt.Println("Tips:")
+		fmt.Println("  - Pastikan Docker terinstall dan berjalan")
+		fmt.Println("  - Pastikan kamu punya akses ke image ini")
+		fmt.Println("  - Coba: docker pull " + image)
+		os.Exit(1)
+	}
+
+	// Deteksi kelemahan
+	var semuaKelemahan []tipe.Kelemahan
+
+	for _, paket := range paketList {
+		kelemahan, _, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+		if err != nil {
+			fmt.Printf("Warning: gagal cek kelemahan untuk %s: %v\n", paket.Nama, err)
+			continue
+		}
+		semuaKelemahan = append(semuaKelemahan, kelemahan...)
+	}
+
+	// Format output
+	if format == "json" {
+		fmt.Println("{JSON_OUTPUT}")
+	} else {
+		// Text format
+		fmt.Printf("\nDitemukan %d paket\n\n", len(paketList))
+
+		if len(semuaKelemahan) > 0 {
+			fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
+			for i, k := range semuaKelemahan {
+				fmt.Printf("%d. %s [%s]\n", i+1, k.ID, k.Tingkat)
+				fmt.Printf("   Judul: %s\n", k.Judul)
+				fmt.Printf("   Paket: %s@%s (%s)\n", k.Paket.Nama, k.Paket.Versi, k.Paket.Jenis)
+				if k.Referensi != "" {
+					fmt.Printf("   Ref:   %s\n", k.Referensi)
+				}
+				fmt.Println()
+			}
+		} else {
+			fmt.Println("Tidak ada kelemahan diketemukan.")
+		}
+
+		// Status verdict
+		fmt.Println("==============================")
+		if len(semuaKelemahan) > 0 {
+			fmt.Println("Status: ⚠️  DITEMUKAN KLEMAHAN")
+		} else if checkOnline {
+			fmt.Println("Status: ✅ TIDAK ADA KLEMAHAN DIKETAHUI")
+		} else {
+			fmt.Println("Status: ⚠️  CEK LOKAL SAJA")
+			fmt.Println("Pesan: Update database dengan 'aman update --cve' untuk hasil lebih lengkap")
 		}
 		fmt.Println("==============================")
 	}
@@ -198,12 +259,9 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target> [flags]
                         - Jalankan pemeriksaan
-  aman update             - Update semua (CVE + AMAN)
-  aman update --all     - Update semua (CVE + AMAN)
+  aman update           - Update semua (CVE + AMAN)
   aman update --cve     - Update database CVE saja
   aman update --self    - Update aplikasi AMAN saja
-  aman update --ecosystem <ecosystem>
-                        - Update CVE satu ecosystem saja
   aman serve            - Jalankan sebagai service (HTTP API)
 
 Flags untuk periksa:
@@ -215,24 +273,15 @@ Flags untuk serve:
 
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer
-  docker                - Periksa gambar turun (container image)
+  docker                - Periksa gambar Docker (container image)
   web                   - Periksa alamat website
-
-Ecosystem untuk update:
-  npm                   - Node.js packages
-  pip                   - Python packages
-  go                    - Go packages
-  rubygems              - Ruby gems
-  cargo                 - Rust packages
-  maven                 - Java packages
-  nuget                 - .NET packages
 
 Contoh:
   aman periksa --jenis folder --sasaran /app
   aman periksa --jenis folder --sasaran /app --online
-  aman update              # Update semua (CVE + AMAN)
-  aman update --cve       # Update CVE saja
-  aman update --self      # Update AMAN saja
+  aman periksa --jenis docker --sasaran nginx:1.21
+  aman periksa --jenis docker --sasaran redis:alpine --online
+  aman update
   aman serve --port 8080
 `)
 }
