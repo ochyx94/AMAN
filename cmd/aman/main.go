@@ -88,7 +88,7 @@ func jalankanPeriksa() {
 	case "docker":
 		pindaiDocker(sasaran, checkOnline, format)
 	case "web":
-		fmt.Println("Fitur web belum tersedia")
+		pindaiWeb(sasaran, checkOnline, format)
 	default:
 		fmt.Printf("Jenis tidak dikenal: %s\n", jenis)
 		fmt.Println("Jenis yang tersedia: folder, docker, web")
@@ -250,6 +250,106 @@ func pindaiDocker(image string, checkOnline bool, format string) {
 	}
 }
 
+func pindaiWeb(target string, checkOnline bool, format string) {
+	fmt.Printf("Memindai website: %s\n", target)
+	if checkOnline {
+		fmt.Println("Mode: ONLINE (cek GitHub Advisories)")
+	} else {
+		fmt.Println("Mode: OFFLINE (database lokal saja)")
+	}
+	fmt.Println("==============================")
+
+	// Inisialisasi database
+	db, err := deteksi.InitDatabase()
+	if err != nil {
+		fmt.Printf("Error init database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Jalankan scanner
+	p := pemindai.NewPemindaiWeb()
+	hasil, err := p.Pindai(target)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		fmt.Println()
+		fmt.Println("Tips:")
+		fmt.Println("  - Pastikan URL benar (termasuk http:// atau https://)")
+		fmt.Println("  - Pastikan website bisa diakses")
+		fmt.Println("  - Coba: curl " + target)
+		os.Exit(1)
+	}
+
+	// Tampilkan info website
+	fmt.Println()
+	fmt.Println("--- Informasi Website ---")
+	fmt.Printf("URL:      %s\n", hasil.URL)
+	fmt.Printf("Status:   %d\n", hasil.StatusCode)
+	fmt.Printf("Title:    %s\n", hasil.Title)
+	fmt.Printf("Server:   %s\n", hasil.Server)
+	if len(hasil.TechStack) > 0 {
+		fmt.Printf("Tech:     %s\n", joinString(hasil.TechStack, ", "))
+	}
+
+	// Deteksi kelemahan
+	var semuaKelemahan []tipe.Kelemahan
+
+	for _, paket := range hasil.Paket {
+		kelemahan, _, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+		if err != nil {
+			fmt.Printf("Warning: gagal cek kelemahan untuk %s: %v\n", paket.Nama, err)
+			continue
+		}
+		semuaKelemahan = append(semuaKelemahan, kelemahan...)
+	}
+
+	// Format output
+	if format == "json" {
+		fmt.Println("{JSON_OUTPUT}")
+	} else {
+		// Text format
+		fmt.Printf("\nDitemukan %d teknologi/paket\n\n", len(hasil.Paket))
+
+		if len(semuaKelemahan) > 0 {
+			fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
+			for i, k := range semuaKelemahan {
+				fmt.Printf("%d. %s [%s]\n", i+1, k.ID, k.Tingkat)
+				fmt.Printf("   Judul: %s\n", k.Judul)
+				fmt.Printf("   Paket: %s\n", k.Paket.Nama)
+				if k.Referensi != "" {
+					fmt.Printf("   Ref:   %s\n", k.Referensi)
+				}
+				fmt.Println()
+			}
+		} else {
+			fmt.Println("Tidak ada kelemahan diketemukan.")
+		}
+
+		// Status verdict
+		fmt.Println("==============================")
+		if len(semuaKelemahan) > 0 {
+			fmt.Println("Status: ⚠️  DITEMUKAN KLEMAHAN")
+		} else if checkOnline {
+			fmt.Println("Status: ✅ TIDAK ADA KLEMAHAN DIKETAHUI")
+		} else {
+			fmt.Println("Status: ⚠️  CEK LOKAL SAJA")
+			fmt.Println("Pesan: Update database dengan 'aman update --cve' untuk hasil lebih lengkap")
+		}
+		fmt.Println("==============================")
+	}
+}
+
+func joinString(items []string, separator string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	result := items[0]
+	for i := 1; i < len(items); i++ {
+		result += separator + items[i]
+	}
+	return result
+}
+
 func printHelp() {
 	fmt.Println(`
 AMAN - Alat deteksi kelemahan software
@@ -274,13 +374,14 @@ Flags untuk serve:
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer
   docker                - Periksa gambar Docker (container image)
-  web                   - Periksa alamat website
+  web                   - Periksa website (URL)
 
 Contoh:
   aman periksa --jenis folder --sasaran /app
   aman periksa --jenis folder --sasaran /app --online
   aman periksa --jenis docker --sasaran nginx:1.21
-  aman periksa --jenis docker --sasaran redis:alpine --online
+  aman periksa --jenis web --sasaran https://contoh.com
+  aman periksa --jenis web --sasaran https://contoh.com --online
   aman update
   aman serve --port 8080
 `)
