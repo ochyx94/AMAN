@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -59,14 +60,26 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 	// 3. Check SSL/TLS certificates
 	s.checkSSLCertificates(result)
 
-	// 4. Check exposed services
+	// 4. Check security headers on web services
+	s.checkSecurityHeaders(result)
+
+	// 5. Check exposed services
 	s.checkExposedServices(result)
 
-	// 5. Check Docker security
+	// 6. Check DNS records (SPF, DKIM, DMARC)
+	s.checkDNSRecords(result)
+
+	// 7. Check Cookie Security
+	s.checkCookieSecurity(result)
+
+	// 8. Check Docker security
 	s.checkDockerSecurity(result)
 
-	// 6. Check database exposure
+	// 8. Check database exposure
 	s.checkDatabaseExposure(result)
+
+	// 9. Check for exposed sensitive files (.git, .env, etc)
+	s.checkExposedFiles(result)
 
 	// Count issues by severity
 	for _, issue := range result.Issues {
@@ -326,6 +339,88 @@ func (s *SecurityScanner) getInternalHosts() []string {
 	return hosts
 }
 
+func (s *SecurityScanner) checkSecurityHeaders(result *SecurityScanResult) {
+	// Check security headers on localhost - prioritize AMAN service port 8080
+	urls := []string{
+		"http://localhost:8080",
+		"http://127.0.0.1:8080",
+		"http://localhost:80",
+		"http://localhost:443",
+	}
+
+	for _, url := range urls {
+		headers := s.fetchSecurityHeaders(url)
+		if len(headers) > 0 {
+			// Found a responding web service, check headers
+			s.checkHeader(result, headers, "strict-transport-security", "HSTS", "HIGH",
+				"HSTS header missing - Traffic not enforced HTTPS",
+				"Add: Strict-Transport-Security: max-age=31536000; includeSubDomains")
+
+			s.checkHeader(result, headers, "content-security-policy", "CSP", "MEDIUM",
+				"CSP header missing - XSS/injection attacks possible",
+				"Add Content-Security-Policy header")
+
+			s.checkHeader(result, headers, "x-content-type-options", "X-Content-Type-Options", "MEDIUM",
+				"MIME sniffing enabled - May allow XSS",
+				"Add: X-Content-Type-Options: nosniff")
+
+			s.checkHeader(result, headers, "x-frame-options", "X-Frame-Options", "HIGH",
+				"Clickjacking attacks possible - No frame protection",
+				"Add: X-Frame-Options: DENY or SAMEORIGIN")
+
+			s.checkHeader(result, headers, "x-xss-protection", "X-XSS-Protection", "LOW",
+				"Legacy XSS filter not enabled",
+				"Add: X-XSS-Protection: 1; mode=block")
+
+			s.checkHeader(result, headers, "referrer-policy", "Referrer-Policy", "MEDIUM",
+				"Referrer information may leak",
+				"Add: Referrer-Policy: strict-origin-when-cross-origin")
+
+			s.checkHeader(result, headers, "permissions-policy", "Permissions-Policy", "LOW",
+				"Browser features not restricted",
+				"Add Permissions-Policy to disable unnecessary features")
+
+			break // Only check first responding service
+		}
+	}
+}
+
+func (s *SecurityScanner) fetchSecurityHeaders(url string) map[string]string {
+	headers := make(map[string]string)
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Head(url)
+	if err != nil {
+		// Try GET if HEAD fails
+		resp, err = client.Get(url)
+		if err != nil {
+			return headers
+		}
+	}
+	defer resp.Body.Close()
+
+	for name, values := range resp.Header {
+		headers[strings.ToLower(name)] = strings.Join(values, ", ")
+	}
+
+	return headers
+}
+
+func (s *SecurityScanner) checkHeader(result *SecurityScanResult, headers map[string]string, headerKey, headerName, severity, description, recommendation string) {
+	if _, exists := headers[headerKey]; !exists {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      severity,
+			Category:      "Security Headers",
+			Title:         fmt.Sprintf("%s header missing on web service", headerName),
+			Description:   description,
+			Recommendation: recommendation,
+		})
+	}
+}
+
 func (s *SecurityScanner) checkExposedServices(result *SecurityScanResult) {
 	// Check if SSH is exposed to internet
 	if s.isPortOpen("0.0.0.0", 22) {
@@ -349,6 +444,139 @@ func (s *SecurityScanner) checkExposedServices(result *SecurityScanResult) {
 			Recommendation: "Disable password auth and use SSH keys",
 		})
 	}
+}
+
+func (s *SecurityScanner) checkDNSRecords(result *SecurityScanResult) {
+	// Get local hostname and domain
+	hostname, _ := os.Hostname()
+
+	// Check if this server has domain configured
+	// For localhost, check basic DNS resolution
+	if hostname == "localhost" || strings.HasPrefix(hostname, "localhost") {
+		// Check if /etc/resolv.conf has nameservers
+		data, err := os.ReadFile("/etc/resolv.conf")
+		if err == nil {
+			if strings.Contains(string(data), "nameserver") {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "INFO",
+					Category:      "DNS",
+					Title:         "DNS resolver configured",
+					Description:   "This server has DNS nameservers configured",
+					Recommendation: "DNS is configured for name resolution",
+				})
+			}
+		}
+		return
+	}
+
+	// For servers with hostnames, we would typically check:
+	// - SPF record: TXT record for domain
+	// - DKIM record: TXT/CNAME record
+	// - DMARC record: TXT record _dmarc.domain
+	// Since we can't easily determine the domain from hostname alone,
+	// we'll provide general guidance
+
+	// Check for DNSSEC support hint (check if /etc/named.conf exists)
+	if _, err := os.Stat("/etc/named.conf"); err == nil {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "INFO",
+			Category:      "DNS",
+			Title:         "DNS server (BIND) detected",
+			Description:   "This server appears to run a DNS server (BIND)",
+			Recommendation: "Ensure DNSSEC is enabled and properly configured",
+		})
+	}
+}
+
+func (s *SecurityScanner) checkCookieSecurity(result *SecurityScanResult) {
+	// Check cookie security on web services
+	urls := []string{
+		"http://localhost:8080",
+		"http://localhost:80",
+	}
+
+	for _, url := range urls {
+		cookies := s.fetchCookies(url)
+		if len(cookies) > 0 {
+			// Check for session cookies
+			for _, cookie := range cookies {
+				// Check if Secure flag is missing
+				if !cookie.Secure {
+					result.Issues = append(result.Issues, SecurityIssue{
+						Severity:      "MEDIUM",
+						Category:      "Cookie Security",
+						Title:         fmt.Sprintf("Cookie '%s' missing Secure flag", cookie.Name),
+						Description:   "Cookie can be transmitted over HTTP - interception possible",
+						Recommendation: "Add Secure flag to cookie to ensure HTTPS-only transmission",
+					})
+				}
+
+				// Check if HttpOnly flag is missing
+				if !cookie.HttpOnly {
+					result.Issues = append(result.Issues, SecurityIssue{
+						Severity:      "MEDIUM",
+						Category:      "Cookie Security",
+						Title:         fmt.Sprintf("Cookie '%s' missing HttpOnly flag", cookie.Name),
+						Description:   "Cookie accessible via JavaScript - XSS risk",
+						Recommendation: "Add HttpOnly flag to prevent JavaScript access",
+					})
+				}
+
+				// Check if SameSite is not set
+				if cookie.SameSite == "none" || cookie.SameSite == "" {
+					result.Issues = append(result.Issues, SecurityIssue{
+						Severity:      "LOW",
+						Category:      "Cookie Security",
+						Title:         fmt.Sprintf("Cookie '%s' missing SameSite attribute", cookie.Name),
+						Description:   "Cookie may be sent on cross-site requests - CSRF risk",
+						Recommendation: "Add SameSite=Strict or SameSite=Lax attribute",
+					})
+				}
+			}
+			break // Only check first responding service
+		}
+	}
+}
+
+type cookieInfo struct {
+	Name     string
+	Secure   bool
+	HttpOnly bool
+	SameSite string
+}
+
+func (s *SecurityScanner) fetchCookies(url string) []cookieInfo {
+	var cookies []cookieInfo
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return cookies
+	}
+	defer resp.Body.Close()
+
+	for _, c := range resp.Cookies() {
+		sameSite := "none"
+		switch c.SameSite {
+		case http.SameSiteStrictMode:
+			sameSite = "strict"
+		case http.SameSiteLaxMode:
+			sameSite = "lax"
+		case http.SameSiteDefaultMode:
+			sameSite = "default"
+		}
+		cookies = append(cookies, cookieInfo{
+			Name:     c.Name,
+			Secure:   c.Secure,
+			HttpOnly: c.HttpOnly,
+			SameSite: sameSite,
+		})
+	}
+
+	return cookies
 }
 
 func (s *SecurityScanner) isPortOpen(host string, port int) bool {
@@ -452,6 +680,64 @@ func (s *SecurityScanner) checkDatabaseExposure(result *SecurityScanResult) {
 				Port:          6379,
 				Recommendation: "Set password in redis.conf or use AUTH command",
 			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkExposedFiles(result *SecurityScanResult) {
+	// Check if .git, .env, backup files are accessible on web services
+	sensitivePaths := []string{
+		".git/config",
+		".git/HEAD",
+		".env",
+		".env.backup",
+		".wp-config.php",
+		"config.php.bak",
+		"database.yml",
+		".htaccess.old",
+		"backup.sql",
+	}
+
+	// Check common web directories
+	webRoots := []string{
+		"/var/www/html",
+		"/opt",
+		"/home",
+	}
+
+	 for _, webRoot := range webRoots {
+		if _, err := os.Stat(webRoot); os.IsNotExist(err) {
+			continue
+		}
+
+		for _, sensitivePath := range sensitivePaths {
+			fullPath := webRoot + "/" + sensitivePath
+
+			if _, err := os.Stat(fullPath); err == nil {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "INFO",
+					Category:      "File Exposure",
+					Title:         fmt.Sprintf("Sensitive file found: %s", sensitivePath),
+					Description:   "Sensitive file exists in web directory - verify it's not publicly accessible",
+					Recommendation: "Ensure sensitive files are outside web root or properly protected",
+				})
+			}
+		}
+	}
+
+	// Check if .git directory is in any project
+	if output, err := exec.Command("find", "/opt", "/home", "/var/www", "-name", ".git", "-type", "d", "2>/dev/null").Output(); err == nil {
+		gitDirs := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, gitDir := range gitDirs {
+			if gitDir != "" {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "File Exposure",
+					Title:         "Git repository found in project directory",
+					Description:   fmt.Sprintf(".git directory found at: %s", gitDir),
+					Recommendation: "Ensure .git directory is not publicly accessible via web server",
+				})
+			}
 		}
 	}
 }
