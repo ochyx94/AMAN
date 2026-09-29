@@ -47,15 +47,35 @@ func jalankanServe() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/api/v1/scan", scanHandler(database))
 	http.HandleFunc("/api/v1/update", updateHandler(database))
+	http.HandleFunc("/api/v1/scan-all", scanAllHandler)
+	http.HandleFunc("/api/v1/security", securityScanHandler)
+
+	// Serve dashboard static files
+	dashboardFS := http.Dir("dashboard")
+	http.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(dashboardFS)))
+
+	// Serve index.html at root
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			// Redirect to dashboard
+			http.ServeFile(w, r, "dashboard/index.html")
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	// Start server
 	fmt.Printf("AMAN Service starting on port %s\n", port)
 	fmt.Println("==============================")
 	fmt.Println("Endpoints:")
-	fmt.Println("  GET  /health        - Health check")
-	fmt.Println("  POST /api/v1/scan   - Scan folder")
-	fmt.Println("  POST /api/v1/update - Update database")
+	fmt.Println("  GET  /                        - Dashboard UI")
+	fmt.Println("  GET  /health                  - Health check")
+	fmt.Println("  POST /api/v1/scan             - Scan folder")
+	fmt.Println("  GET  /api/v1/scan-all        - Scan all server overview")
+	fmt.Println("  GET  /api/v1/security         - Security scan")
+	fmt.Println("  POST /api/v1/update           - Update database")
 	fmt.Println()
+	fmt.Printf("Dashboard: http://localhost:%s\n", port)
 
 	httpServer = &http.Server{
 		Addr:         ":" + port,
@@ -177,4 +197,24 @@ func updateHandler(database *sql.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	}
+}
+
+func scanAllHandler(w http.ResponseWriter, r *http.Request) {
+	scanner := pemindai.NewComprehensiveScanner()
+	result, err := scanner.Run()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func securityScanHandler(w http.ResponseWriter, r *http.Request) {
+	scanner := pemindai.NewSecurityScanner()
+	result := scanner.Run()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
