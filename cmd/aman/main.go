@@ -150,8 +150,10 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target>
                         - Jalankan pemeriksaan
+  aman update --all
+                        - Update database CVE untuk semua ecosystem
   aman update --ecosystem <ecosystem>
-                        - Update database CVE
+                        - Update database CVE untuk satu ecosystem
 
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer

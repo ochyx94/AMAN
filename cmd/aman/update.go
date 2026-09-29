@@ -8,8 +8,20 @@ import (
 	"aman/pkg/db"
 )
 
+// Ecosystems yang didukung
+var ecosystems = []string{
+	"npm",
+	"pip",
+	"go",
+	"rubygems",
+	"cargo",
+	"maven",
+	"nuget",
+}
+
 func jalankanUpdate() {
 	var ecosystem string
+	var all bool
 
 	// Parse arguments
 	args := os.Args[2:]
@@ -20,18 +32,10 @@ func jalankanUpdate() {
 				ecosystem = args[i+1]
 				i++
 			}
+		case "--all", "-a":
+			all = true
 		}
 	}
-
-	if ecosystem == "" {
-		fmt.Println("Error: --ecosystem wajib diisi")
-		fmt.Println("Contoh: aman update --ecosystem npm")
-		fmt.Println("Ecosystem yang tersedia: npm, pip, go, rubygems, cargo, maven, nuget")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Mengupdate database untuk ecosystem: %s\n", ecosystem)
-	fmt.Println("==============================")
 
 	// Inisialisasi database
 	database, err := db.InitDB("aman.db")
@@ -44,31 +48,51 @@ func jalankanUpdate() {
 	// Buat updater
 	updater := db.NewUpdater()
 
-	mulai := time.Now()
-
-	// Update dari GitHub (lebih cepat dan gratis)
-	fmt.Println("Mengupdate dari GitHub Advisories...")
-	err = updater.UpdateFromGitHub(database, ecosystem)
-	if err != nil {
-		fmt.Printf("Warning: Gagal update dari GitHub: %v\n", err)
-		fmt.Println("Mencoba NVD...")
-		
-		err = updater.UpdateFromNVD(database, ecosystem)
-		if err != nil {
-			fmt.Printf("Error: Gagal update dari NVD: %v\n", err)
-			os.Exit(1)
-		}
+	// Tentukan ekosistem yang akan diupdate
+	var toUpdate []string
+	if all || ecosystem == "" {
+		toUpdate = ecosystems
+		fmt.Println("Mengupdate SEMUA ecosystem...")
+	} else {
+		toUpdate = []string{ecosystem}
+		fmt.Printf("Mengupdate ecosystem: %s\n", ecosystem)
 	}
 
-	durasi := time.Since(mulai).Seconds()
-
-	// Hitung jumlah CVE
-	var jumlah int
-	database.QueryRow("SELECT COUNT(*) FROM kelemahan WHERE LOWER(paket) LIKE LOWER(?)", "%"+ecosystem+"%").Scan(&jumlah)
-
 	fmt.Println("==============================")
-	fmt.Printf("Update selesai dalam %.2f detik\n", durasi)
-	fmt.Printf("Total kelemahan untuk %s: %d\n", ecosystem, jumlah)
+	fmt.Printf("Total: %d ecosystem\n\n", len(toUpdate))
+
+	totalCVE := 0
+	mulaiTotal := time.Now()
+
+	for _, eco := range toUpdate {
+		fmt.Printf("[%s] ", eco)
+		mulai := time.Now()
+
+		// Update dari GitHub
+		err := updater.UpdateFromGitHub(database, eco)
+		if err != nil {
+			fmt.Printf("GAGAL: %v\n", err)
+			continue
+		}
+
+		// Hitung jumlah CVE untuk ecosystem ini
+		var jumlah int
+		database.QueryRow("SELECT COUNT(*) FROM kelemahan WHERE LOWER(?) LIKE LOWER('%' || LOWER(paket) || '%')", eco).Scan(&jumlah)
+		// Alternative query
+		database.QueryRow("SELECT COUNT(*) FROM kelemahan").Scan(&jumlah)
+
+		durasi := time.Since(mulai).Seconds()
+		fmt.Printf("OK (%d CVE, %.1fs)\n", jumlah, durasi)
+		totalCVE += jumlah
+	}
+
+	durasiTotal := time.Since(mulaiTotal).Seconds()
+
 	fmt.Println()
-	fmt.Println("Catatan: Gunakan 'aman periksa --jenis folder --sasaran /app' untuk scan")
+	fmt.Println("==============================")
+	fmt.Printf("Update selesai dalam %.2f detik\n", durasiTotal)
+	fmt.Printf("Total CVE di database: %d\n", totalCVE)
+	fmt.Println()
+	fmt.Println("Contoh penggunaan:")
+	fmt.Println("  aman periksa --jenis folder --sasaran /app")
 }
