@@ -38,7 +38,37 @@ go build -o aman ./cmd/aman
 sudo mv aman /usr/local/bin/
 ```
 
-### Cara 3: Install sebagai Service (Systemd)
+### Cara 3: Docker (Recommended)
+
+```bash
+# Pull dari Docker Hub
+docker pull aman-scanner/aman:latest
+
+# Atau build sendiri
+docker build -t aman-scanner:latest .
+
+# Jalankan
+docker run -d -p 8080:8080 --name aman aman-scanner:latest
+```
+
+### Cara 4: Docker Compose
+
+```bash
+# Clone repository
+git clone https://github.com/ochyx94/AMAN.git
+cd AMAN
+
+# Jalankan dengan docker-compose
+docker-compose up -d
+
+# Lihat status
+docker-compose ps
+
+# Stop
+docker-compose down
+```
+
+### Cara 5: Install sebagai Service (Systemd)
 
 ```bash
 git clone https://github.com/ochyx94/AMAN.git
@@ -179,6 +209,17 @@ curl -X POST http://localhost:8080/api/v1/scan \
 curl -X POST http://localhost:8080/api/v1/update \
   -H "Content-Type: application/json" \
   -d '{"all": true}'
+```
+
+### Dashboard Web UI
+
+```bash
+# Jalankan service
+aman serve --port 8080
+
+# Buka browser
+# http://localhost:8080
+# Atau http://localhost:8080/dashboard/index.html
 ```
 
 ### 7. Service Commands (Systemd)
