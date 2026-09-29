@@ -472,6 +472,22 @@ AMAN menggunakan data dari:
 1. **GitHub Advisories** - https://github.com/advisories
 2. **NVD NIST** - https://nvd.nist.gov/
 
+## Installation
+
+Untuk panduan instalasi lengkap (Systemd service atau Docker), lihat [INSTALL.md](INSTALL.md).
+
+Quick start:
+
+```bash
+# Systemd (bare metal/VM)
+git clone https://github.com/ochyx94/AMAN.git
+cd AMAN
+sudo ./deploy/install.sh
+
+# Docker
+docker-compose up -d
+```
+
 ## License
 
 MIT License - Silakan digunakan dan dimodifikasi.

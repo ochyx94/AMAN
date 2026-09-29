@@ -22,8 +22,8 @@ LABEL maintainer="AMAN Security Team"
 LABEL description="AMAN - Software Vulnerability Scanner"
 LABEL version="1.0.0"
 
-# Install CA certificates dan SQLite
-RUN apk add --no-cache ca-certificates sqlite-libs
+# Install CA certificates, SQLite, and curl for healthcheck
+RUN apk add --no-cache ca-certificates sqlite-libs curl
 
 # Create non-root user
 RUN addgroup -g 1000 aman && \
