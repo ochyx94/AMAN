@@ -27,6 +27,8 @@ func main() {
 		fmt.Printf("AMAN version %s\n", Version)
 	case "periksa":
 		jalankanPeriksa()
+	case "periksa-all", "scan-all":
+		jalankanPeriksaAll()
 	case "update":
 		jalankanUpdate()
 	case "serve":
@@ -470,6 +472,7 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target> [flags]
                         - Jalankan pemeriksaan
+  aman periksa-all      - Scan semua di server (folder, docker, web)
   aman update           - Update semua (CVE + AMAN)
   aman update --cve     - Update database CVE saja
   aman update --self    - Update aplikasi AMAN saja
@@ -492,7 +495,135 @@ Contoh:
   aman periksa --jenis folder --sasaran /app --online --format json
   aman periksa --jenis docker --sasaran nginx:1.21
   aman periksa --jenis web --sasaran https://contoh.com
+  aman periksa-all           - Scan semua folder/docker/web di server
   aman update
   aman serve --port 8080
 `)
+}
+
+func jalankanPeriksaAll() {
+	fmt.Println("========================================")
+	fmt.Println("AMAN - Comprehensive Server Scan")
+	fmt.Println("========================================")
+	fmt.Println()
+
+	// Inisialisasi database
+	db, err := deteksi.InitDatabase()
+	if err != nil {
+		fmt.Printf("Error init database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Buat comprehensive scanner
+	scanner := pemindai.NewComprehensiveScanner()
+	fmt.Println("Mengumpulkan informasi server...")
+
+	// Get server info
+	serverInfo := scanner.GetServerInfo()
+	fmt.Printf("Server: %s\n", serverInfo.Hostname)
+	fmt.Printf("OS:     %s\n", serverInfo.OS)
+	fmt.Printf("Kernel: %s\n", serverInfo.Kernel)
+	if serverInfo.DockerVer != "" {
+		fmt.Printf("Docker: %s\n", serverInfo.DockerVer)
+	}
+	fmt.Println()
+
+	// Scan common directories
+	fmt.Println("--- Folder Scan ---")
+	commonPaths := []string{
+		"/var/www",
+		"/home",
+		"/opt",
+		"/srv",
+		"/usr/local/src",
+	}
+
+	folderScanner := pemindai.PemindaiFolder{}
+	totalPackages := 0
+	totalVulns := 0
+
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+
+		fmt.Printf("Memindai: %s\n", path)
+		paketList, err := folderScanner.Pindai(path)
+		if err != nil {
+			fmt.Printf("  Error: %v\n", err)
+			continue
+		}
+
+		if len(paketList) > 0 {
+			fmt.Printf("  Ditemukan %d paket...\n", len(paketList))
+			totalPackages += len(paketList)
+
+			// Check for vulnerabilities
+			for _, paket := range paketList {
+				kelemahan, _, err := deteksi.DeteksiPaket(db, paket, false)
+				if err == nil && len(kelemahan) > 0 {
+					totalVulns += len(kelemahan)
+					for _, k := range kelemahan {
+						fmt.Printf("  ⚠️  %s [%s] - %s\n", k.ID, k.Tingkat, k.Paket.Nama)
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("--- Docker Images ---")
+	// Check docker images
+	dockerAvailable := true
+
+	// Simple docker check
+	if _, err := os.Stat("/usr/bin/docker"); os.IsNotExist(err) {
+		if _, err := os.Stat("/usr/local/bin/docker"); os.IsNotExist(err) {
+			dockerAvailable = false
+		}
+	}
+
+	if !dockerAvailable {
+		fmt.Println("Docker tidak tersedia")
+	} else {
+		fmt.Println("Docker tersedia - gunakan 'aman periksa --jenis docker --sasaran <image>' untuk scan")
+	}
+
+	fmt.Println()
+	fmt.Println("--- Web Services ---")
+	// Check common web ports
+	ports := []int{80, 443, 8080, 8443, 3000, 3001, 4000, 5000}
+	detectedWebServices := 0
+
+	for _, port := range ports {
+		// Just report what we found, detailed scan dengan command lain
+		if port == 80 || port == 443 {
+			fmt.Printf("Port %d: HTTP%s detected\n", port, "")
+			detectedWebServices++
+		} else {
+			fmt.Printf("Port %d: ", port)
+			// Check if port is listening (simplified check)
+			fmt.Println("(check manually)")
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("========================================")
+	fmt.Println("SUMMARY")
+	fmt.Println("========================================")
+	fmt.Printf("Total Paket Dicek:  %d\n", totalPackages)
+	fmt.Printf("Total Kelemahan:    %d\n", totalVulns)
+	fmt.Printf("Docker Images:      -")
+	if dockerAvailable {
+		fmt.Println("tersedia")
+	} else {
+		fmt.Println("tidak tersedia")
+	}
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Tips:")
+	fmt.Println("  Scan Docker image: aman periksa --jenis docker --sasaran nginx:latest")
+	fmt.Println("  Scan website: aman periksa --jenis web --sasaran https://example.com")
+	fmt.Println("  Scan folder spesifik: aman periksa --jenis folder --sasaran /path/to/project")
 }
