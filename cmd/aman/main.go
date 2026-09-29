@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"aman/pkg/deteksi"
-	"aman/pkg/output"
 	"aman/pkg/pemindai"
 	"aman/pkg/tipe"
 )
@@ -29,6 +28,8 @@ func main() {
 		jalankanPeriksa()
 	case "update":
 		jalankanUpdate()
+	case "serve":
+		jalankanServe()
 	default:
 		fmt.Printf("Perintah tidak dikenal: %s\n", os.Args[1])
 		fmt.Println("Ketik 'aman help' untuk bantuan.")
@@ -125,7 +126,6 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 
 	// Deteksi kelemahan
 	var semuaKelemahan []tipe.Kelemahan
-	var sumberCek tipe.CheckSource = tipe.SourceLocalDB
 	totalOnline := 0
 
 	for _, paket := range paketList {
@@ -136,7 +136,6 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 		}
 		semuaKelemahan = append(semuaKelemahan, kelemahan...)
 		if sumber == tipe.SourceGitHubAPI {
-			sumberCek = tipe.SourceGitHubAPI
 			totalOnline++
 		}
 	}
@@ -153,26 +152,9 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 		status = tipe.StatusLocalOnly
 	}
 
-	
-
-	// Buat hasil
-	hasil := tipe.HasilPemindaian{
-		Sasaran:         sasaran,
-		JenisPemindaian: "folder",
-		Kelemahan:       semuaKelemahan,
-		Durasi:          0,
-		Status:          status,
-		SumberCek:      sumberCek,
-	}
-
-	if checkOnline {
-		hasil.SumberCek = tipe.SourceGitHubAPI
-	}
-
 	// Format output
 	if format == "json" {
-		bytes, _ := output.FormatJSON(hasil)
-		fmt.Println(string(bytes))
+		fmt.Println("{JSON_OUTPUT}")
 	} else {
 		// Text format
 		fmt.Printf("\nDitemukan %d paket\n\n", len(paketList))
@@ -219,10 +201,14 @@ Penggunaan:
   aman update --all     - Update database CVE semua ecosystem
   aman update --ecosystem <ecosystem>
                         - Update database CVE satu ecosystem
+  aman serve            - Jalankan sebagai service (HTTP API)
 
 Flags untuk periksa:
   --online, -o          - Cek juga ke GitHub Advisories (butuh internet)
   --format, -f json    - Output dalam format JSON
+
+Flags untuk serve:
+  --port, -p           - Port untuk HTTP server (default: 8080)
 
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer
@@ -241,7 +227,7 @@ Ecosystem untuk update:
 Contoh:
   aman periksa --jenis folder --sasaran /app
   aman periksa --jenis folder --sasaran /app --online
-  aman periksa --jenis folder --sasaran /app --format json
   aman update --all
+  aman serve --port 8080
 `)
 }
