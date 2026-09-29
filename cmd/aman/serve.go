@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"aman/pkg/db"
@@ -49,6 +50,7 @@ func jalankanServe() {
 	http.HandleFunc("/api/v1/update", updateHandler(database))
 	http.HandleFunc("/api/v1/scan-all", scanAllHandler)
 	http.HandleFunc("/api/v1/security", securityScanHandler)
+	http.HandleFunc("/api/v1/scan-web", scanWebHandler(database))
 
 	// Serve dashboard static files
 	dashboardFS := http.Dir("dashboard")
@@ -217,4 +219,45 @@ func securityScanHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func scanWebHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			URL         string `json:"url"`
+			CheckOnline bool   `json:"check_online"`
+		}
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if req.URL == "" {
+			http.Error(w, "URL is required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate URL
+		if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+			req.URL = "https://" + req.URL
+		}
+
+		// Scan website
+		scanner := pemindai.NewPemindaiWeb()
+		hasil, err := scanner.Pindai(req.URL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Web scan error: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(hasil)
+	}
 }
