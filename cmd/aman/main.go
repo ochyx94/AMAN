@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"aman/pkg/deteksi"
+	"aman/pkg/output"
 	"aman/pkg/pemindai"
 	"aman/pkg/tipe"
 )
@@ -38,6 +39,8 @@ func main() {
 func jalankanPeriksa() {
 	var jenis string
 	var sasaran string
+	var checkOnline bool
+	var format string
 
 	// parse arguments
 	args := os.Args[2:]
@@ -51,6 +54,13 @@ func jalankanPeriksa() {
 		case "--sasaran", "-s":
 			if i+1 < len(args) {
 				sasaran = args[i+1]
+				i++
+			}
+		case "--online", "-o":
+			checkOnline = true
+		case "--format", "-f":
+			if i+1 < len(args) {
+				format = args[i+1]
 				i++
 			}
 		}
@@ -73,7 +83,7 @@ func jalankanPeriksa() {
 
 	switch jenis {
 	case "folder":
-		pindaiFolder(sasaran)
+		pindaiFolder(sasaran, checkOnline, format)
 	case "docker":
 		fmt.Println("Fitur docker belum tersedia")
 	case "web":
@@ -88,8 +98,13 @@ func jalankanPeriksa() {
 	fmt.Printf("\nSelesai dalam %.2f detik\n", durasi)
 }
 
-func pindaiFolder(sasaran string) {
+func pindaiFolder(sasaran string, checkOnline bool, format string) {
 	fmt.Printf("Memindai folder: %s\n", sasaran)
+	if checkOnline {
+		fmt.Println("Mode: ONLINE (cek GitHub Advisories)")
+	} else {
+		fmt.Println("Mode: OFFLINE (database lokal saja)")
+	}
 	fmt.Println("==============================")
 
 	// Inisialisasi database
@@ -110,35 +125,86 @@ func pindaiFolder(sasaran string) {
 
 	// Deteksi kelemahan
 	var semuaKelemahan []tipe.Kelemahan
+	var sumberCek tipe.CheckSource = tipe.SourceLocalDB
+	totalOnline := 0
+
 	for _, paket := range paketList {
-		kelemahan, err := deteksi.DeteksiPaket(db, paket)
+		kelemahan, sumber, err := deteksi.DeteksiPaket(db, paket, checkOnline)
 		if err != nil {
 			fmt.Printf("Warning: gagal cek kelemahan untuk %s: %v\n", paket.Nama, err)
 			continue
 		}
 		semuaKelemahan = append(semuaKelemahan, kelemahan...)
-	}
-
-	// Tampilkan hasil
-	fmt.Printf("Ditemukan %d paket\n\n", len(paketList))
-
-	if len(semuaKelemahan) > 0 {
-		fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
-		for i, k := range semuaKelemahan {
-			fmt.Printf("%d. %s\n", i+1, k.ID)
-			fmt.Printf("   Judul: %s\n", k.Judul)
-			fmt.Printf("   Tingkat: %s\n", k.Tingkat)
-			fmt.Printf("   Paket: %s\n\n", k.Paket.Nama)
+		if sumber == tipe.SourceGitHubAPI {
+			sumberCek = tipe.SourceGitHubAPI
+			totalOnline++
 		}
-	} else {
-		fmt.Println("Tidak ada kelemahan diketemukan di database lokal.")
-		fmt.Println("Catatan: Hasil ini berdasarkan database lokal saja.")
-		fmt.Println("Untuk hasil lebih lengkap:")
-		fmt.Println("  1. Update database: aman update --ecosystem npm")
-		fmt.Println("  2. Scan lagi: aman periksa --jenis folder --sasaran /app")
 	}
 
-	fmt.Println("==============================")
+	// Tentukan status
+	var status tipe.StatusVerdict
+	if len(semuaKelemahan) > 0 {
+		status = tipe.StatusVerified
+	} else if checkOnline && totalOnline == 0 {
+		status = tipe.NoVulnFound
+	} else if checkOnline {
+		status = tipe.StatusVerified
+	} else {
+		status = tipe.StatusLocalOnly
+	}
+
+	
+
+	// Buat hasil
+	hasil := tipe.HasilPemindaian{
+		Sasaran:         sasaran,
+		JenisPemindaian: "folder",
+		Kelemahan:       semuaKelemahan,
+		Durasi:          0,
+		Status:          status,
+		SumberCek:      sumberCek,
+	}
+
+	if checkOnline {
+		hasil.SumberCek = tipe.SourceGitHubAPI
+	}
+
+	// Format output
+	if format == "json" {
+		bytes, _ := output.FormatJSON(hasil)
+		fmt.Println(string(bytes))
+	} else {
+		// Text format
+		fmt.Printf("\nDitemukan %d paket\n\n", len(paketList))
+
+		if len(semuaKelemahan) > 0 {
+			fmt.Printf("Ditemukan %d kelemahan:\n\n", len(semuaKelemahan))
+			for i, k := range semuaKelemahan {
+				fmt.Printf("%d. %s [%s]\n", i+1, k.ID, k.Tingkat)
+				fmt.Printf("   Judul: %s\n", k.Judul)
+				fmt.Printf("   Paket: %s\n", k.Paket.Nama)
+				if k.Referensi != "" {
+					fmt.Printf("   Ref:   %s\n", k.Referensi)
+				}
+				fmt.Println()
+			}
+		} else {
+			fmt.Println("Tidak ada kelemahan diketemukan.")
+		}
+
+		// Status verdict
+		fmt.Println("==============================")
+		switch status {
+		case tipe.StatusVerified:
+			fmt.Println("Status: ✅ TERVERIFIKASI (via GitHub Advisories)")
+		case tipe.StatusLocalOnly:
+			fmt.Println("Status: ⚠️  CEK LOKAL SAJA")
+			fmt.Println("Pesan: Update database dengan 'aman update --all' untuk hasil lebih lengkap")
+		case tipe.NoVulnFound:
+			fmt.Println("Status: ✅ TIDAK ADA KLEMAHAN DIKETAHUI")
+		}
+		fmt.Println("==============================")
+	}
 }
 
 func printHelp() {
@@ -148,12 +214,15 @@ AMAN - Alat deteksi kelemahan software
 Penggunaan:
   aman help              - Tampilkan bantuan ini
   aman version           - Tampilkan versi
-  aman periksa --jenis <jenis> --sasaran <target>
+  aman periksa --jenis <jenis> --sasaran <target> [flags]
                         - Jalankan pemeriksaan
-  aman update --all
-                        - Update database CVE untuk semua ecosystem
+  aman update --all     - Update database CVE semua ecosystem
   aman update --ecosystem <ecosystem>
-                        - Update database CVE untuk satu ecosystem
+                        - Update database CVE satu ecosystem
+
+Flags untuk periksa:
+  --online, -o          - Cek juga ke GitHub Advisories (butuh internet)
+  --format, -f json    - Output dalam format JSON
 
 Jenis pemeriksaan:
   folder                - Periksa folder/berkas di komputer
@@ -171,7 +240,8 @@ Ecosystem untuk update:
 
 Contoh:
   aman periksa --jenis folder --sasaran /app
-  aman update --ecosystem npm
-  aman periksa --jenis docker --sasaran nginx:1.21
+  aman periksa --jenis folder --sasaran /app --online
+  aman periksa --jenis folder --sasaran /app --format json
+  aman update --all
 `)
 }
