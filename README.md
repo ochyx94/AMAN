@@ -6,7 +6,9 @@ AMAN adalah alat CLI untuk mendeteksi kelemahan (vulnerability) dalam software. 
 
 - **🔍 Scanner Folder** - Deteksi kelemahan di folder project
 - **🐳 Scanner Docker** - Deteksi kelemahan di container images
-- **🌐 Scanner Web** - Deteksi kelemahan di website (coming soon)
+- **🌐 Scanner Web** - Deteksi kelemahan di website
+- **🖥️ Server Overview** - Scan semua di server (folder, docker, web) sekaligus
+- **🔐 Security Scanner** - Cek port terbuka, SSL, service security
 - **📦 Database CVE Lokal** - Tidak perlu internet untuk scan basic
 - **🔄 Auto-Update** - Update database CVE otomatis
 - **🌐 GitHub Advisories** - Cek kelemahan terbaru dari GitHub
@@ -96,6 +98,14 @@ aman periksa --jenis folder --sasaran ~/project/python-api
 
 # Scan project Go
 aman periksa --jenis folder --sasaran ~/project/golang-service
+```
+
+### 1b. Scan Web (CVE)
+
+Scan website untuk kelemahan CVE:
+
+```bash
+aman periksa --jenis web --sasaran https://contoh.com
 ```
 
 ### 2. Online Scan (Dengan GitHub Advisories)
@@ -222,7 +232,101 @@ aman serve --port 8080
 # Atau http://localhost:8080/dashboard/index.html
 ```
 
-### 7. Service Commands (Systemd)
+### 7. Scan Semua di Server (Overview)
+
+Quick overview semua yang ada di server (folder, docker, web ports):
+
+```bash
+aman periksa-all
+```
+
+**Contoh output:**
+```
+========================================
+AMAN - Comprehensive Server Scan
+========================================
+
+Server: my-server
+OS:     Ubuntu 22.04 LTS
+Kernel: 5.15.0-generic
+Docker: Docker version 24.0.0
+
+--- Folder Scan ---
+Memindai: /home
+  Ditemukan 12 paket
+Memindai: /opt
+  Ditemukan 8 paket
+
+--- Docker Images ---
+Docker tersedia
+
+--- Web Services ---
+Port 80:  HTTP detected
+Port 443: HTTPS detected
+
+========================================
+SUMMARY
+========================================
+Total Paket Dicek:  20
+Total Kelemahan:    0
+Docker Images:      tersedia
+========================================
+```
+
+### 8. Security Scanner
+
+Scan keamanan server (port terbuka, SSL certificates, service security):
+
+```bash
+aman periksa-security
+```
+
+**Contoh output:**
+```
+========================================
+AMAN - Security Scan
+========================================
+
+Memindai keamanan server...
+
+⚠️  HIGH: 2 masalah
+
+--- Detail Issues ---
+
+⚠️ [HIGH] SSH port 22 open on all interfaces
+   Kategori: Remote Access
+   Port: 22
+   Rekomendasi: Use key-based auth, fail2ban, or restrict via firewall
+
+⚠️ [HIGH] Password authentication enabled for SSH
+   Kategori: Authentication
+   Rekomendasi: Disable password auth and use SSH keys
+
+========================================
+SUMMARY
+========================================
+Total Issues:    2
+  CRITICAL:      0
+  HIGH:          2
+  MEDIUM:        0
+  LOW:           0
+========================================
+```
+
+**Security issues yang dideteksi:**
+
+| Severity | Issue | Description |
+|----------|-------|-------------|
+| 🔴 CRITICAL | Docker socket exposed | Container escape risk |
+| 🔴 CRITICAL | Privileged container | Full host access |
+| 🔴 CRITICAL | DB port exposed | Database accessible from internet |
+| ⚠️ HIGH | SSH open to internet | Brute force target |
+| ⚠️ HIGH | Password auth SSH | Weak authentication |
+| ⚠️ HIGH | Redis no password | Unauthenticated access |
+| ⚡ MEDIUM | SSL expiring soon | Certificate renewal needed |
+| ⚡ MEDIUM | TLS 1.0/1.1 | Deprecated protocol |
+
+### 9. Service Commands (Systemd)
 
 ```bash
 # Cek status service
