@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 	"aman/pkg/pemindai"
 	"aman/pkg/tipe"
 )
+
+// minInt returns the smaller of two ints
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // Version AMAN
 const Version = "1.3.1"
@@ -879,7 +888,7 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	fmt.Printf("Total Kelemahan: %d\n", totalVulns)
 	fmt.Println()
 
-	// 4. SYSTEM PACKAGES SCAN (NEW!)
+	// 4. SYSTEM PACKAGES SCAN (OSV.dev distro feed + rpmvercmp)
 	fmt.Println("========================================")
 	fmt.Println("SYSTEM PACKAGES SCAN")
 	fmt.Println("========================================")
@@ -892,53 +901,107 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	fmt.Println()
 
 	systemVulns := 0
-	systemVulnList := []tipe.Kelemahan{}
+	type SysVuln struct {
+		PkgName    string
+		Installed  string
+		Fixed      string
+		AdvisoryID string
+		CVEs       []string
+		Severity   string
+		Summary    string
+	}
+	var systemVulnList []SysVuln
 
 	if len(sysPackages) > 0 {
-		fmt.Println("Mengecek vulnerabilities...")
-		// Check CVE for first 50 packages to avoid timeout
-		maxCheck := 50
-		if len(sysPackages) < maxCheck {
-			maxCheck = len(sysPackages)
+		ecosystem := pemindai.DetectDistroEcosystem()
+		fmt.Printf("Distro ecosystem: %s\n", ecosystem)
+		fmt.Println("Mengecek vulnerabilities via OSV.dev...")
+
+		osvClient := pemindai.NewOSVClient()
+		advisoryMap, err := osvClient.QueryBatch(ecosystem, sysPackages)
+		if err != nil {
+			fmt.Printf("  Error OSV query: %v\n", err)
 		}
 
-		checkedCount := 0
-		for i := 0; i < maxCheck; i++ {
-			pkg := sysPackages[i]
-			if pkg.Version == "" || pkg.Version == "unknown" {
-				continue
-			}
+		// Build name index
+		pkgIndex := make(map[string][]pemindai.SystemPackage)
+		for _, p := range sysPackages {
+			pkgIndex[p.Name] = append(pkgIndex[p.Name], p)
+		}
 
-			// Convert to generic Paket for CVE matching
-			genericPkg := tipe.Paket{
-				Nama:    pkg.Name,
-				Versi:   pkg.Version,
-				Jenis:   pkg.Ecosystem,
-				Lokasi:  fmt.Sprintf("system:%s", pkg.Name),
-			}
+		// Fetch all advisory details concurrently (10x faster than sequential)
+		allIDs := pemindai.CollectAllAdvisoryIDs(advisoryMap)
+		fmt.Printf("  Mengambil detail %d advisories (concurrent)...\n", len(allIDs))
+		advisoryCache := osvClient.FetchAdvisoryDetails(allIDs, 10)
 
-			kelemahan, _, err := deteksi.DeteksiPaket(db, genericPkg, checkOnline)
-			if err == nil && len(kelemahan) > 0 {
-				systemVulns += len(kelemahan)
-				systemVulnList = append(systemVulnList, kelemahan...)
-				for _, k := range kelemahan {
-					fmt.Printf("  ⚠️  [%s] %s (%s): %s\n", k.Tingkat, k.Paket.Nama, k.Paket.Versi, k.ID)
+		for pkgName, advIDs := range advisoryMap {
+			for _, advID := range advIDs {
+				vuln, ok := advisoryCache[advID]
+				if !ok {
+					continue
+				}
+
+				fixedVersion := vuln.GetFixedVersion(pkgName)
+				if fixedVersion == "" {
+					continue
+				}
+
+				// Check each installed instance of this package
+				for _, inst := range pkgIndex[pkgName] {
+					if pemindai.IsVulnerable(inst.Version, fixedVersion) {
+						systemVulns++
+						systemVulnList = append(systemVulnList, SysVuln{
+							PkgName:    pkgName,
+							Installed:  inst.Version,
+							Fixed:      fixedVersion,
+							AdvisoryID: advID,
+							CVEs:       vuln.ExtractCVEs(),
+							Severity:   vuln.GetSeverity(),
+							Summary:    vuln.Summary,
+						})
+					}
 				}
 			}
-			checkedCount++
 		}
 
-		if checkedCount < len(sysPackages) {
-			fmt.Printf("  ... checked %d of %d packages\n", checkedCount, len(sysPackages))
-		}
+		fmt.Printf("  Advisories dianalisis: %d\n", len(advisoryCache))
 	}
 
 	fmt.Printf("\nSystem Packages Checked: %d\n", len(sysPackages))
 	fmt.Printf("System Vulnerabilities Found: %d\n", systemVulns)
-	if systemVulns > 0 {
+	if len(systemVulnList) > 0 {
 		fmt.Println("\n--- System Package Vulnerabilities ---")
-		for _, k := range systemVulnList {
-			fmt.Printf("  ⚠️  %s [%s] - %s @ %s\n", k.ID, k.Tingkat, k.Paket.Nama, k.Paket.Versi)
+		// Sort: CRITICAL > HIGH > MEDIUM > LOW
+		sevOrder := map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+		sort.Slice(systemVulnList, func(i, j int) bool {
+			return sevOrder[systemVulnList[i].Severity] < sevOrder[systemVulnList[j].Severity]
+		})
+		// Show max 30 + dedup by pkg+cve
+		shown := 0
+		seenVuln := make(map[string]bool)
+		for _, v := range systemVulnList {
+			key := v.PkgName + "|" + strings.Join(v.CVEs, ",")
+			if seenVuln[key] {
+				continue
+			}
+			seenVuln[key] = true
+			if shown >= 30 {
+				fmt.Printf("  ... dan %d temuan lainnya\n", len(systemVulnList)-shown)
+				break
+			}
+			cveStr := "-"
+			if len(v.CVEs) > 0 {
+				cveStr = strings.Join(v.CVEs[:minInt(2, len(v.CVEs))], ", ")
+				if len(v.CVEs) > 2 {
+					cveStr += fmt.Sprintf(" (+%d)", len(v.CVEs)-2)
+				}
+			}
+			fmt.Printf("  ⚠️  [%s] %s @ %s\n", v.Severity, v.PkgName, v.Installed)
+			fmt.Printf("      Advisory: %s | Fixed: %s\n", v.AdvisoryID, v.Fixed)
+			fmt.Printf("      CVE: %s\n", cveStr)
+			fmt.Printf("      %s\n", v.Summary)
+			fmt.Println()
+			shown++
 		}
 	}
 	fmt.Println()
