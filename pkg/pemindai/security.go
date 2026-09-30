@@ -116,10 +116,10 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 	s.checkExposedFiles(result)
 
 	// 20. Check backup status
-	// s.checkBackupStatus(result)  // Tahap 2
+	s.checkBackupStatus(result)
 
 	// 21. Check NTP/time sync
-	// s.checkTimeSync(result)  // Tahap 2
+	s.checkTimeSync(result)
 
 	// Count issues by severity
 	for _, issue := range result.Issues {
@@ -1205,5 +1205,136 @@ func (s *SecurityScanner) checkSuspiciousProcesses(result *SecurityScanResult) {
 				}
 			}
 		}
+	}
+}
+
+// === BACKUP & TIME CHECKS ===
+
+func (s *SecurityScanner) checkBackupStatus(result *SecurityScanResult) {
+	// Check for backup cron jobs
+	cmd := exec.Command("sh", "-c", "crontab -l 2>/dev/null | grep -iE 'backup|rsync|cp|mv|tar|zip'")
+	output, _ := cmd.Output()
+	if strings.TrimSpace(string(output)) == "" {
+		// Also check system cron
+		cmd = exec.Command("sh", "-c", "grep -rE 'backup|rsync' /etc/cron* 2>/dev/null | head -5")
+		output, _ = cmd.Output()
+		if strings.TrimSpace(string(output)) == "" {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "Backup",
+				Title:         "No backup cron job found",
+				Description:   "No scheduled backup jobs detected in crontab or /etc/cron*",
+				Recommendation: "Set up automated backup with cron: man crontab",
+			})
+		}
+	}
+
+	// Check for backup directories
+	backupDirs := []string{"/backup", "/backups", "/var/backup", "/var/backups", "/home/backup"}
+	backupFound := false
+	for _, dir := range backupDirs {
+		if _, err := os.Stat(dir); err == nil {
+			backupFound = true
+			// Check if recent backups exist
+			cmd = exec.Command("sh", "-c", "find "+dir+" -type f -mtime -7 2>/dev/null | wc -l")
+			output, _ = cmd.Output()
+			var count int
+			fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
+			if count == 0 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "Backup",
+					Title:         fmt.Sprintf("No recent backups in %s", dir),
+					Description:   "Backup directory exists but no files modified in last 7 days",
+					Recommendation: "Verify backup process is running correctly",
+				})
+			}
+			break
+		}
+	}
+
+	if !backupFound {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "HIGH",
+			Category:      "Backup",
+			Title:         "No backup directory found",
+			Description:   "No standard backup directories (/backup, /var/backup, etc.) found",
+			Recommendation: "Create backup directory and set up automated backup",
+		})
+	}
+
+	// Check for offsite/remote backup indicators
+	cmd = exec.Command("sh", "-c", "grep -rE 'rsync|s3|aws|scp|rclone' /etc/*.conf /root/.ssh/config 2>/dev/null | head -3")
+	output, _ = cmd.Output()
+	if strings.TrimSpace(string(output)) == "" {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "MEDIUM",
+			Category:      "Backup",
+			Title:         "No offsite/remote backup configured",
+			Description:   "No evidence of remote backup (rsync, S3, scp) found in configs",
+			Recommendation: "Configure offsite backup for disaster recovery",
+		})
+	}
+}
+
+func (s *SecurityScanner) checkTimeSync(result *SecurityScanResult) {
+	// Check for NTP service
+	ntpServices := []string{"chronyd", "ntpd", "systemd-timesyncd"}
+
+	for _, svc := range ntpServices {
+		if s.isServiceRunning(svc) {
+			// NTP service is running - check sync status
+			cmd := exec.Command("sh", "-c", "timedatectl status 2>/dev/null | grep -i 'synchronized'")
+			output, _ := cmd.Output()
+			if strings.Contains(strings.ToLower(string(output)), "yes") {
+				return // All good, NTP is synced
+			}
+		}
+	}
+
+	// Check if time is synchronized via other means
+	cmd := exec.Command("sh", "-c", "timedatectl 2>/dev/null")
+	output, _ := cmd.Output()
+	if strings.TrimSpace(string(output)) != "" {
+		// timedatectl exists, check status
+		if strings.Contains(strings.ToLower(string(output)), "ntp") {
+			if !strings.Contains(strings.ToLower(string(output)), "active") {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "Time Sync",
+					Title:         "NTP service not active",
+					Description:   "NTP time synchronization is not active",
+					Recommendation: "Enable NTP: timedatectl set-ntp true",
+				})
+			}
+		} else {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "MEDIUM",
+				Category:      "Time Sync",
+				Title:         "NTP not configured",
+				Description:   "Server time is not synchronized via NTP",
+				Recommendation: "Enable NTP: timedatectl set-ntp true or install chrony/ntpd",
+			})
+		}
+	} else {
+		// No timedatectl, check for ntpdate or other sync methods
+		cmd = exec.Command("sh", "-c", "which ntpdate chrony ntpd 2>/dev/null")
+		output, _ = cmd.Output()
+		if strings.TrimSpace(string(output)) == "" {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "MEDIUM",
+				Category:      "Time Sync",
+				Title:         "No time synchronization service found",
+				Description:   "No NTP service (chrony, ntpd) or time sync tool installed",
+				Recommendation: "Install and configure chrony or ntp",
+			})
+		}
+	}
+
+	// Check for time drift (if hwclock exists)
+	cmd = exec.Command("sh", "-c", "hwclock --show 2>/dev/null")
+	hwOutput, _ := cmd.Output()
+	if len(hwOutput) > 0 {
+		// Could add more complex drift detection here
 	}
 }
