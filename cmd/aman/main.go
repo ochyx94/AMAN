@@ -24,7 +24,7 @@ func minInt(a, b int) int {
 }
 
 // Version AMAN
-const Version = "1.3.1"
+const Version = "1.4.0"
 
 func main() {
 	if len(os.Args) == 1 {
