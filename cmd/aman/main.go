@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"aman/pkg/deteksi"
@@ -94,9 +97,11 @@ func jalankanPeriksa() {
 		pindaiDocker(sasaran, checkOnline, format)
 	case "web":
 		pindaiWeb(sasaran, checkOnline, format)
+	case "all":
+		pindaiAll(sasaran, checkOnline, format)
 	default:
 		fmt.Printf("Jenis tidak dikenal: %s\n", jenis)
-		fmt.Println("Jenis yang tersedia: folder, docker, web")
+		fmt.Println("Jenis yang tersedia: folder, docker, web, all")
 		os.Exit(1)
 	}
 
@@ -753,4 +758,185 @@ func printSecurityIssue(issue pemindai.SecurityIssue) {
 	}
 	fmt.Printf("   Rekomendasi: %s\n", issue.Recommendation)
 	fmt.Println()
+}
+
+// pindaiAll - Comprehensive scan combining all checks
+func pindaiAll(sasaran string, checkOnline bool, format string) {
+	fmt.Println("========================================")
+	fmt.Println("AMAN - Comprehensive Security Scan")
+	fmt.Println("========================================")
+	fmt.Println()
+
+	// Initialize database
+	db, err := deteksi.InitDatabase()
+	if err != nil {
+		fmt.Printf("Error init database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// 1. SECURITY SCAN (Comprehensive)
+	fmt.Println("========================================")
+	fmt.Println("SECURITY SCAN")
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Memindai keamanan server...")
+	fmt.Println()
+
+	scanner := pemindai.NewSecurityScanner()
+	result := scanner.Run()
+
+	// Display security results
+	if result.TotalIssues == 0 {
+		fmt.Println("✅ Tidak ada masalah keamanan ditemukan!")
+	} else {
+		if result.Critical > 0 {
+			fmt.Printf("⚠️  CRITICAL: %d masalah\n", result.Critical)
+		}
+		if result.High > 0 {
+			fmt.Printf("⚠️  HIGH: %d masalah\n", result.High)
+		}
+		if result.Medium > 0 {
+			fmt.Printf("⚡ MEDIUM: %d masalah\n", result.Medium)
+		}
+		if result.Low > 0 {
+			fmt.Printf("ℹ️  LOW: %d masalah\n", result.Low)
+		}
+		fmt.Println()
+		fmt.Println("--- Detail ---")
+		for _, issue := range result.Issues {
+			printSecurityIssue(issue)
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("========================================")
+	fmt.Println("SUMMARY")
+	fmt.Println("========================================")
+	fmt.Printf("Total Security Issues: %d\n", result.TotalIssues)
+	fmt.Printf("  CRITICAL: %d\n", result.Critical)
+	fmt.Printf("  HIGH:     %d\n", result.High)
+	fmt.Printf("  MEDIUM:   %d\n", result.Medium)
+	fmt.Printf("  LOW:      %d\n", result.Low)
+	fmt.Println()
+
+	// 2. SERVER INFO
+	fmt.Println("========================================")
+	fmt.Println("SERVER INFO")
+	fmt.Println("========================================")
+
+	serverScanner := pemindai.NewComprehensiveScanner()
+	serverInfo := serverScanner.GetServerInfo()
+	fmt.Printf("Hostname:  %s\n", serverInfo.Hostname)
+	fmt.Printf("OS:        %s\n", serverInfo.OS)
+	fmt.Printf("Kernel:    %s\n", serverInfo.Kernel)
+	fmt.Printf("Docker:    %s\n", serverInfo.DockerVer)
+	fmt.Println()
+
+	// 3. FOLDER SCAN
+	fmt.Println("========================================")
+	fmt.Println("FOLDER SCAN")
+	fmt.Println("========================================")
+
+	folderScanner := pemindai.PemindaiFolder{}
+	scanPaths := []string{}
+	
+	// Use sasaran if provided, otherwise scan common paths
+	if sasaran != "" {
+		scanPaths = append(scanPaths, sasaran)
+	} else {
+		scanPaths = []string{"/home", "/opt", "/srv", "/usr/local/src"}
+	}
+
+	totalPackages := 0
+	totalVulns := 0
+
+	for _, path := range scanPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+		fmt.Printf("Memindai: %s\n", path)
+		paketList, err := folderScanner.Pindai(path)
+		if err != nil {
+			fmt.Printf("  Error: %v\n", err)
+			continue
+		}
+		if len(paketList) > 0 {
+			fmt.Printf("  Ditemukan %d paket...\n", len(paketList))
+			totalPackages += len(paketList)
+			for _, paket := range paketList {
+				kelemahan, _, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+				if err == nil && len(kelemahan) > 0 {
+					totalVulns += len(kelemahan)
+					for _, k := range kelemahan {
+						fmt.Printf("  ⚠️  %s [%s] - %s\n", k.ID, k.Tingkat, k.Paket.Nama)
+					}
+				}
+			}
+		}
+	}
+	fmt.Printf("\nTotal Paket: %d\n", totalPackages)
+	fmt.Printf("Total Kelemahan: %d\n", totalVulns)
+	fmt.Println()
+
+	// 4. DOCKER SCAN
+	fmt.Println("========================================")
+	fmt.Println("DOCKER SCAN")
+	fmt.Println("========================================")
+
+	// Use exec.Command to list docker images
+	cmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}")
+	output, err := cmd.Output()
+	var imageCount int
+	if err == nil {
+		images := strings.Split(strings.TrimSpace(string(output)), "\n")
+		imageCount = 0
+		for _, img := range images {
+			if img != "" && img != "<none>:<none>" {
+				imageCount++
+			}
+		}
+	}
+	if imageCount > 0 {
+		fmt.Printf("Ditemukan %d Docker images\n", imageCount)
+		fmt.Println("Gunakan: aman periksa --jenis docker --sasaran <image> untuk scan")
+	} else {
+		fmt.Println("Tidak ada Docker images ditemukan")
+	}
+	fmt.Println()
+
+	// 5. WEB SCAN
+	fmt.Println("========================================")
+	fmt.Println("WEB SCAN")
+	fmt.Println("========================================")
+
+	webPorts := []int{80, 443, 8080, 8443}
+	for _, port := range webPorts {
+		protocol := "HTTP"
+		if port == 443 {
+			protocol = "HTTPS"
+		}
+		address := fmt.Sprintf("localhost:%d", port)
+		conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+		if err == nil {
+			conn.Close()
+			fmt.Printf("Port %d: %s detected\n", port, protocol)
+		}
+	}
+	fmt.Println()
+
+	// FINAL SUMMARY
+	fmt.Println("========================================")
+	fmt.Println("FINAL SUMMARY")
+	fmt.Println("========================================")
+	fmt.Printf("Total Security Issues: %d\n", result.TotalIssues)
+	fmt.Printf("Total Packages Scanned: %d\n", totalPackages)
+	fmt.Printf("Total Vulnerabilities: %d\n", totalVulns)
+	fmt.Printf("Docker Images: %d\n", imageCount)
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Tips:")
+	fmt.Println("  Scan folder spesifik: aman periksa --jenis folder --sasaran /path")
+	fmt.Println("  Scan Docker image: aman periksa --jenis docker --sasaran nginx:latest")
+	fmt.Println("  Scan website: aman periksa --jenis web --sasaran https://example.com")
 }
