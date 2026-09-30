@@ -121,6 +121,25 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 	// 21. Check NTP/time sync
 	s.checkTimeSync(result)
 
+	// === EXPANDED SECURITY ===
+	// 22. Check SSH detailed config
+	s.checkSSHConfig(result)
+
+	// 23. Check sysctl kernel parameters
+	s.checkSysctlConfig(result)
+
+	// 24. Check running services (detailed)
+	s.checkRunningServicesDetailed(result)
+
+	// 25. Check cron security
+	s.checkCronSecurity(result)
+
+	// 26. Check SELinux/AppArmor status
+	s.checkSELinuxStatus(result)
+
+	// 27. Check systemd services
+	s.checkSystemdServices(result)
+
 	// Count issues by severity
 	for _, issue := range result.Issues {
 		switch issue.Severity {
@@ -1336,5 +1355,258 @@ func (s *SecurityScanner) checkTimeSync(result *SecurityScanResult) {
 	hwOutput, _ := cmd.Output()
 	if len(hwOutput) > 0 {
 		// Could add more complex drift detection here
+	}
+}
+
+// === EXPANDED SECURITY CHECKS ===
+
+func (s *SecurityScanner) checkSSHConfig(result *SecurityScanResult) {
+	// Detailed SSH config check
+	sshConfigPath := "/etc/ssh/sshd_config"
+	data, err := os.ReadFile(sshConfigPath)
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+
+		// Check for weak SSH settings
+		if strings.Contains(line, "PermitEmptyPasswords yes") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "CRITICAL",
+				Category:      "SSH Security",
+				Title:         "Empty passwords allowed in SSH",
+				Description:   "SSH allows empty passwords - CRITICAL security risk",
+				Recommendation: "Set PermitEmptyPasswords no in /etc/ssh/sshd_config",
+			})
+		}
+
+		if strings.Contains(line, "PermitRootLogin yes") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "SSH Security",
+				Title:         "Root login enabled in SSH",
+				Description:   "Root can login directly via SSH",
+				Recommendation: "Set PermitRootLogin no in /etc/ssh/sshd_config",
+			})
+		}
+
+		if strings.Contains(line, "PasswordAuthentication yes") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "SSH Security",
+				Title:         "Password authentication enabled",
+				Description:   "SSH allows password authentication - vulnerable to brute force",
+				Recommendation: "Use key-based authentication and set PasswordAuthentication no",
+			})
+		}
+
+		if strings.Contains(line, "Protocol 1") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "SSH Security",
+				Title:         "SSH Protocol 1 enabled",
+				Description:   "SSH Protocol 1 is outdated and insecure",
+				Recommendation: "Set Protocol 2 in /etc/ssh/sshd_config",
+			})
+		}
+
+		if strings.Contains(line, "X11Forwarding yes") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "LOW",
+				Category:      "SSH Security",
+				Title:         "X11 Forwarding enabled",
+				Description:   "X11 forwarding may pose security risks",
+				Recommendation: "Disable X11Forwarding unless needed",
+			})
+		}
+
+		if strings.Contains(line, "MaxAuthTries") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				if tries, err := strconv.Atoi(parts[1]); err == nil && tries > 3 {
+					result.Issues = append(result.Issues, SecurityIssue{
+						Severity:      "MEDIUM",
+						Category:      "SSH Security",
+						Title:         fmt.Sprintf("High MaxAuthTries value: %d", tries),
+						Description:   "Too many authentication attempts allowed",
+						Recommendation: "Set MaxAuthTries 3 or less",
+					})
+				}
+			}
+		}
+	}
+}
+
+func (s *SecurityScanner) checkSysctlConfig(result *SecurityScanResult) {
+	// Check important kernel security parameters
+	sysctlParams := map[string]struct {
+		expectedMin int
+		severity   string
+		description string
+	}{
+		"net.ipv4.conf.all.rp_filter": {1, "HIGH", "IP forwarding enabled"},
+		"net.ipv4.conf.default.rp_filter": {1, "HIGH", "IP forwarding enabled"},
+		"net.ipv4.icmp_echo_ignore_broadcasts": {1, "MEDIUM", "ICMP broadcast attacks possible"},
+		"net.ipv4.conf.all.accept_source_route": {0, "HIGH", "Source routing enabled"},
+		"net.ipv4.conf.default.accept_source_route": {0, "HIGH", "Source routing enabled"},
+		"net.ipv4.conf.all.accept_redirects": {0, "HIGH", "ICMP redirects accepted"},
+		"net.ipv4.conf.default.accept_redirects": {0, "HIGH", "ICMP redirects accepted"},
+		"net.ipv6.conf.all.accept_redirects": {0, "HIGH", "IPv6 redirects accepted"},
+		"net.ipv6.conf.default.accept_redirects": {0, "HIGH", "IPv6 redirects accepted"},
+		"kernel.dmesg_restrict": {1, "MEDIUM", "Kernel messages may leak information"},
+		"kernel.kptr_restrict": {1, "MEDIUM", "Kernel pointers may be visible"},
+		"net.ipv4.tcp_syncookies": {1, "MEDIUM", "SYN floods possible"},
+	}
+
+	for param, config := range sysctlParams {
+		cmd := exec.Command("sysctl", "-n", param)
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		value := strings.TrimSpace(string(output))
+		if value == "" {
+			continue
+		}
+
+		currentVal := 0
+		fmt.Sscanf(value, "%d", &currentVal)
+
+		if currentVal < config.expectedMin {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      config.severity,
+				Category:      "Kernel Security",
+				Title:         fmt.Sprintf("sysctl %s = %d (should be >= %d)", param, currentVal, config.expectedMin),
+				Description:   config.description,
+				Recommendation: fmt.Sprintf("Run: sysctl -w %s=1", param),
+			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkRunningServicesDetailed(result *SecurityScanResult) {
+	// Check for unnecessary running services
+	unnecessaryServices := []string{
+		"telnet",    // Insecure protocol
+		"rsh",       // Insecure protocol
+		"rlogin",    // Insecure protocol
+		"vsftpd",    // FTP is insecure
+		"proftpd",   // FTP is insecure
+		"pure-ftpd", // FTP is insecure
+		"finger",    // Information disclosure
+		" chargen",  // DDoS amplification
+		" discard",  // DDoS amplification
+		"echo",      // DDoS amplification
+		"time",      // Information disclosure
+		"daytime",   // Information disclosure
+	}
+
+	for _, svc := range unnecessaryServices {
+		if s.isServiceRunning(svc) {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "MEDIUM",
+				Category:      "Services",
+				Title:         fmt.Sprintf("Unnecessary service running: %s", svc),
+				Description:   "This service is insecure or unnecessary",
+				Recommendation: fmt.Sprintf("Disable: systemctl stop %s && systemctl disable %s", svc, svc),
+			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkCronSecurity(result *SecurityScanResult) {
+	// Check cron permissions and configurations
+	cronPaths := []string{"/etc/cron.d", "/etc/cron.daily", "/etc/cron.hourly", "/etc/cron.monthly", "/etc/cron.weekly"}
+
+	for _, cronPath := range cronPaths {
+		if _, err := os.Stat(cronPath); err == nil {
+			cmd := exec.Command("sh", "-c", "find "+cronPath+" -type f -perm /002 2>/dev/null")
+			output, _ := cmd.Output()
+			if strings.TrimSpace(string(output)) != "" {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "Cron Security",
+					Title:         fmt.Sprintf("World-writable cron file in %s", cronPath),
+					Description:   "Cron files with world-write permissions pose security risk",
+					Recommendation: "Fix permissions: chmod o-w <file>",
+				})
+			}
+		}
+	}
+
+	// Check for cron.allow/cron.deny
+	if _, err := os.Stat("/etc/cron.allow"); os.IsNotExist(err) {
+		if _, err := os.Stat("/etc/cron.deny"); err == nil {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "LOW",
+				Category:      "Cron Security",
+				Title:         "No cron.allow file",
+				Description:   "cron.deny exists but not cron.allow",
+				Recommendation: "Create /etc/cron.allow to restrict cron access",
+			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkSELinuxStatus(result *SecurityScanResult) {
+	// Check SELinux/AppArmor status
+	if _, err := os.Stat("/sys/fs/selinux/enforce"); err == nil {
+		// SELinux exists
+		cmd := exec.Command("getenforce")
+		output, _ := cmd.Output()
+		status := strings.TrimSpace(string(output))
+
+		if status != "Enforcing" {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "System Security",
+				Title:         "SELinux not enforcing",
+				Description:   fmt.Sprintf("SELinux is in %s mode", status),
+				Recommendation: "Set SELinux to Enforcing: setenforce 1",
+			})
+		}
+	}
+
+	// Check AppArmor
+	if _, err := os.Stat("/sys/kernel/security/apparmor"); err == nil {
+		cmd := exec.Command("systemctl", "is-active", "apparmor")
+		if err := cmd.Run(); err != nil {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "MEDIUM",
+				Category:      "System Security",
+				Title:         "AppArmor not active",
+				Description:   "AppArmor is installed but not active",
+				Recommendation: "Enable AppArmor: systemctl enable --now apparmor",
+			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkSystemdServices(result *SecurityScanResult) {
+	// Check for services that should not be enabled
+	dangerousServices := []string{
+		"cups",           // Print server, rarely needed on servers
+		"bluetooth",     // Bluetooth, rarely needed
+		"avahi-daemon",   // Service discovery, rarely needed
+		"rpcbind",        // RPC portmapper, security risk
+	}
+
+	for _, svc := range dangerousServices {
+		if s.isServiceRunning(svc) {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "LOW",
+				Category:      "Services",
+				Title:         fmt.Sprintf("Unnecessary service running: %s", svc),
+				Description:   "This service is rarely needed on a server",
+				Recommendation: fmt.Sprintf("Disable: systemctl stop %s && systemctl disable %s", svc, svc),
+			})
+		}
 	}
 }
