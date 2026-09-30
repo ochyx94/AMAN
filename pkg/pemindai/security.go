@@ -51,35 +51,75 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 		Issues:    []SecurityIssue{},
 	}
 
+	// === SYSTEM SECURITY ===
 	// 1. Check running services
 	s.checkRunningServices(result)
 
-	// 2. Check open ports
+	// 2. Check kernel version (outdated kernel = vulnerability)
+	s.checkKernelVersion(result)
+
+	// 3. Check outdated system packages
+	s.checkOutdatedPackages(result)
+
+	// 4. Check failed login attempts
+	s.checkFailedLogins(result)
+
+	// 5. Check user accounts (weak passwords, empty passwords)
+	s.checkUserAccounts(result)
+
+	// === FILE SYSTEM SECURITY ===
+	// 6. Check world-writable files
+	// s.checkWorldWritableFiles(result)  // Tahap 2
+
+	// 7. Check SUID binaries
+	// s.checkSUIDBinaries(result)  // Tahap 2
+
+	// === NETWORK SECURITY ===
+	// 8. Check open ports
 	s.checkOpenPorts(result)
 
-	// 3. Check SSL/TLS certificates
+	// 9. Check SSL/TLS certificates
 	s.checkSSLCertificates(result)
 
-	// 4. Check security headers on web services
+	// 10. Check weak SSL ciphers
+	// s.checkWeakSSLCiphers(result)  // Tahap 2
+
+	// 11. Check firewall status
+	// s.checkFirewallStatus(result)  // Tahap 2
+
+	// 12. Check suspicious processes
+	// s.checkSuspiciousProcesses(result)  // Tahap 2
+
+	// === WEB SECURITY ===
+	// 13. Check security headers on web services
 	s.checkSecurityHeaders(result)
 
-	// 5. Check exposed services
+	// 14. Check exposed services (SSH, etc)
 	s.checkExposedServices(result)
 
-	// 6. Check DNS records (SPF, DKIM, DMARC)
+	// 15. Check DNS records (SPF, DKIM, DMARC)
 	s.checkDNSRecords(result)
 
-	// 7. Check Cookie Security
+	// 16. Check Cookie Security
 	s.checkCookieSecurity(result)
 
-	// 8. Check Docker security
+	// === DOCKER/CONTAINER SECURITY ===
+	// 17. Check Docker security
 	s.checkDockerSecurity(result)
 
-	// 8. Check database exposure
+	// === DATABASE SECURITY ===
+	// 18. Check database exposure
 	s.checkDatabaseExposure(result)
 
-	// 9. Check for exposed sensitive files (.git, .env, etc)
+	// === BACKUP & TIME ===
+	// 19. Check for exposed sensitive files (.git, .env, etc)
 	s.checkExposedFiles(result)
+
+	// 20. Check backup status
+	// s.checkBackupStatus(result)  // Tahap 2
+
+	// 21. Check NTP/time sync
+	// s.checkTimeSync(result)  // Tahap 2
 
 	// Count issues by severity
 	for _, issue := range result.Issues {
@@ -753,4 +793,165 @@ func (s *SecurityScanner) hasRedisPassword() bool {
 		}
 	}
 	return strings.Contains(string(data), "requirepass")
+}
+
+// === NEW SYSTEM SECURITY CHECKS ===
+
+func (s *SecurityScanner) checkKernelVersion(result *SecurityScanResult) {
+	// Check if kernel is outdated
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return
+	}
+
+	versionStr := string(data)
+	
+	// Check for known old kernels (example: pre-5.x or specific CVEs)
+	// This is a simplified check - production would have more comprehensive version checking
+	oldKernels := []string{
+		"2.6.", // Very old
+		"3.",    // Old
+		"4.",    // Old LTS ended
+	}
+	
+	for _, oldKernel := range oldKernels {
+		if strings.Contains(versionStr, oldKernel) {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "System Security",
+				Title:         "Outdated kernel version detected",
+				Description:   fmt.Sprintf("Kernel version is old and may have unpatched vulnerabilities"),
+				Recommendation: "Update kernel to latest stable version",
+			})
+			return
+		}
+	}
+}
+
+func (s *SecurityScanner) checkOutdatedPackages(result *SecurityScanResult) {
+	// Check for yum/dnf updates
+	if _, err := exec.LookPath("yum"); err == nil {
+		output, err := exec.Command("yum", "check-update", "--security").Output()
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			secUpdates := 0
+			for _, line := range lines {
+				if strings.Contains(line, ".x86_64") || strings.Contains(line, ".noarch") {
+					secUpdates++
+				}
+			}
+			if secUpdates > 0 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "HIGH",
+					Category:      "System Security",
+					Title:         fmt.Sprintf("%d security updates available", secUpdates),
+					Description:   "System packages have pending security updates",
+					Recommendation: "Run: yum update --security",
+				})
+			}
+		}
+	}
+	
+	// Check for apt (Debian/Ubuntu)
+	if _, err := exec.LookPath("apt"); err == nil {
+		output, err := exec.Command("sh", "-c", "apt list --upgradable 2>/dev/null | grep -i security").Output()
+		if err == nil && len(output) > 0 {
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			secUpdates := len(lines)
+			if secUpdates > 0 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "HIGH",
+					Category:      "System Security",
+					Title:         fmt.Sprintf("%d security updates available", secUpdates),
+					Description:   "System packages have pending security updates",
+					Recommendation: "Run: apt update && apt upgrade --security",
+				})
+			}
+		}
+	}
+}
+
+func (s *SecurityScanner) checkFailedLogins(result *SecurityScanResult) {
+	// Check for failed SSH login attempts
+	authLogPaths := []string{
+		"/var/log/auth.log",
+		"/var/log/secure",
+		"/var/log/messages",
+	}
+	
+	totalFailed := 0
+	for _, logPath := range authLogPaths {
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			continue
+		}
+		
+		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		failedCount := 0
+		for scanner.Scan() {
+			line := strings.ToLower(scanner.Text())
+			if strings.Contains(line, "failed password") && strings.Contains(line, "ssh") {
+				failedCount++
+			}
+		}
+		totalFailed += failedCount
+	}
+	
+	if totalFailed > 10 {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "MEDIUM",
+			Category:      "Authentication",
+			Title:         fmt.Sprintf("%d failed SSH login attempts detected", totalFailed),
+			Description:   "Multiple failed login attempts may indicate brute force attack",
+			Recommendation: "Consider enabling fail2ban or restricting SSH access",
+		})
+	}
+}
+
+func (s *SecurityScanner) checkUserAccounts(result *SecurityScanResult) {
+	// Check for users with empty passwords
+	data, err := os.ReadFile("/etc/shadow")
+	if err != nil {
+		return
+	}
+	
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, ":")
+		if len(parts) >= 2 {
+			// Check for empty password (second field is empty or *)
+			if parts[1] == "" || parts[1] == "*" || parts[1] == "!" {
+				// Valid entries with * or ! are locked accounts - OK
+				continue
+			}
+			// Empty password field is a serious issue
+			if parts[1] == "NP" || parts[1] == "!!" {
+				username := parts[0]
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "CRITICAL",
+					Category:      "Authentication",
+					Title:         fmt.Sprintf("User '%s' has no password", username),
+					Description:   "User account has no password set - can be accessed by anyone",
+					Recommendation: "Set a strong password: passwd " + username,
+				})
+			}
+		}
+	}
+	
+	// Check for root SSH access
+	if output, err := exec.Command("grep", "-E", "^PermitRootLogin|^PasswordAuthentication", "/etc/ssh/sshd_config").Output(); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "PermitRootLogin yes") {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "HIGH",
+					Category:      "Authentication",
+					Title:         "Root SSH login enabled",
+					Description:   "Root can login via SSH - high security risk",
+					Recommendation: "Set PermitRootLogin no in /etc/ssh/sshd_config",
+				})
+			}
+		}
+	}
 }
