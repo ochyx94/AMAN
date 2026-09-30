@@ -220,6 +220,9 @@ func cekVersiTerbaru() (string, string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == 404 {
+		return "", "", fmt.Errorf("belum ada release di GitHub (hubungi admin atau update manual)")
+	}
 	if resp.StatusCode != 200 {
 		return "", "", fmt.Errorf("GitHub API returned: %d", resp.StatusCode)
 	}

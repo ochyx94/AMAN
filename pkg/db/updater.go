@@ -136,7 +136,14 @@ func (u *Updater) UpdateFromNVD(db *sql.DB, ecosystem string) error {
 
 // UpdateFromGitHub mengupdate dari GitHub Advisories
 func (u *Updater) UpdateFromGitHub(db *sql.DB, ecosystem string) error {
-	url := fmt.Sprintf("https://api.github.com/advisories?ecosystem=%s", ecosystem)
+	// Map ecosystem name ke GitHub Advisories ecosystem
+	// GitHub API: npm, pip, go, rubygems, rust, maven, nuget (cargo = rust)
+	apiEcosystem := ecosystem
+	if ecosystem == "cargo" {
+		apiEcosystem = "rust"
+	}
+	
+	url := fmt.Sprintf("https://api.github.com/advisories?ecosystem=%s", apiEcosystem)
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
