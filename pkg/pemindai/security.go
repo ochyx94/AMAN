@@ -69,10 +69,10 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 
 	// === FILE SYSTEM SECURITY ===
 	// 6. Check world-writable files
-	// s.checkWorldWritableFiles(result)  // Tahap 2
+	s.checkWorldWritableFiles(result)
 
 	// 7. Check SUID binaries
-	// s.checkSUIDBinaries(result)  // Tahap 2
+	s.checkSUIDBinaries(result)
 
 	// === NETWORK SECURITY ===
 	// 8. Check open ports
@@ -953,5 +953,102 @@ func (s *SecurityScanner) checkUserAccounts(result *SecurityScanResult) {
 				})
 			}
 		}
+	}
+}
+
+// === FILE SYSTEM SECURITY CHECKS ===
+
+func (s *SecurityScanner) checkWorldWritableFiles(result *SecurityScanResult) {
+	// Check for world-writable files in common directories
+	dirs := []string{"/etc", "/var", "/tmp", "/home"}
+	
+	for _, dir := range dirs {
+		cmd := exec.Command("find", dir, "-perm", "-0002", "-type", "f", "-not", "-path", "*/proc/*")
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		
+		files := strings.Split(strings.TrimSpace(string(output)), "\n")
+		count := 0
+		hasFiles := false
+		for _, file := range files {
+			if file == "" {
+				continue
+			}
+			hasFiles = true
+			count++
+			// Report first 5 files individually
+			if count <= 5 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "File Permissions",
+					Title:         fmt.Sprintf("World-writable file: %s", file),
+					Description:   "File can be written by any user - security risk",
+					Recommendation: "Remove world write permission: chmod o-w " + file,
+				})
+			}
+		}
+		if hasFiles && count > 5 {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "MEDIUM",
+				Category:      "File Permissions",
+				Title:         fmt.Sprintf("%d world-writable files found in %s", count, dir),
+				Description:   "Multiple world-writable files found (showing first 5)",
+				Recommendation: "Review and restrict permissions: chmod o-w <file>",
+			})
+		}
+	}
+}
+
+func (s *SecurityScanner) checkSUIDBinaries(result *SecurityScanResult) {
+	// Check for SUID binaries (potential privilege escalation)
+	// Known safe SUID binaries
+	safeSUID := map[string]bool{
+		"/usr/bin/passwd": true,
+		"/usr/bin/sudo": true,
+		"/bin/su": true,
+		"/usr/bin/su": true,
+		"/usr/bin/newgrp": true,
+		"/usr/bin/chfn": true,
+		"/usr/bin/chsh": true,
+		"/usr/bin/gpasswd": true,
+	}
+	
+	cmd := exec.Command("find", "/usr", "-perm", "-4000", "-type", "f")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	
+	suidFiles := strings.Split(strings.TrimSpace(string(output)), "\n")
+	
+	suspiciousCount := 0
+	for _, suidFile := range suidFiles {
+		if suidFile == "" {
+			continue
+		}
+		if !safeSUID[suidFile] {
+			suspiciousCount++
+			if suspiciousCount <= 10 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "MEDIUM",
+					Category:      "File Permissions",
+					Title:         fmt.Sprintf("Non-standard SUID binary: %s", suidFile),
+					Description:   "SUID binary that is not commonly needed - potential privilege escalation",
+					Recommendation: "Review if this SUID bit is necessary: ls -la " + suidFile,
+				})
+			}
+		}
+	}
+	
+	if suspiciousCount > 10 {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "MEDIUM",
+			Category:      "File Permissions",
+			Title:         fmt.Sprintf("%d non-standard SUID binaries found", suspiciousCount),
+			Description:   "Multiple SUID binaries that are not in the known-safe list",
+			Recommendation: "Review all SUID binaries and remove unnecessary ones",
+		})
 	}
 }
