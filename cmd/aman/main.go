@@ -879,7 +879,71 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	fmt.Printf("Total Kelemahan: %d\n", totalVulns)
 	fmt.Println()
 
-	// 4. DOCKER SCAN
+	// 4. SYSTEM PACKAGES SCAN (NEW!)
+	fmt.Println("========================================")
+	fmt.Println("SYSTEM PACKAGES SCAN")
+	fmt.Println("========================================")
+	fmt.Println("Memindai installed packages (rpm/dpkg)...")
+	fmt.Println()
+
+	sysScanner := pemindai.NewSystemPackageScanner()
+	sysPackages := sysScanner.ScanSystemPackages()
+	fmt.Printf("Ditemukan %d installed packages\n", len(sysPackages))
+	fmt.Println()
+
+	systemVulns := 0
+	systemVulnList := []tipe.Kelemahan{}
+
+	if len(sysPackages) > 0 {
+		fmt.Println("Mengecek vulnerabilities...")
+		// Check CVE for first 50 packages to avoid timeout
+		maxCheck := 50
+		if len(sysPackages) < maxCheck {
+			maxCheck = len(sysPackages)
+		}
+
+		checkedCount := 0
+		for i := 0; i < maxCheck; i++ {
+			pkg := sysPackages[i]
+			if pkg.Version == "" || pkg.Version == "unknown" {
+				continue
+			}
+
+			// Convert to generic Paket for CVE matching
+			genericPkg := tipe.Paket{
+				Nama:    pkg.Name,
+				Versi:   pkg.Version,
+				Jenis:   pkg.Ecosystem,
+				Lokasi:  fmt.Sprintf("system:%s", pkg.Name),
+			}
+
+			kelemahan, _, err := deteksi.DeteksiPaket(db, genericPkg, checkOnline)
+			if err == nil && len(kelemahan) > 0 {
+				systemVulns += len(kelemahan)
+				systemVulnList = append(systemVulnList, kelemahan...)
+				for _, k := range kelemahan {
+					fmt.Printf("  ⚠️  [%s] %s (%s): %s\n", k.Tingkat, k.Paket.Nama, k.Paket.Versi, k.ID)
+				}
+			}
+			checkedCount++
+		}
+
+		if checkedCount < len(sysPackages) {
+			fmt.Printf("  ... checked %d of %d packages\n", checkedCount, len(sysPackages))
+		}
+	}
+
+	fmt.Printf("\nSystem Packages Checked: %d\n", len(sysPackages))
+	fmt.Printf("System Vulnerabilities Found: %d\n", systemVulns)
+	if systemVulns > 0 {
+		fmt.Println("\n--- System Package Vulnerabilities ---")
+		for _, k := range systemVulnList {
+			fmt.Printf("  ⚠️  %s [%s] - %s @ %s\n", k.ID, k.Tingkat, k.Paket.Nama, k.Paket.Versi)
+		}
+	}
+	fmt.Println()
+
+	// 5. DOCKER SCAN
 	fmt.Println("========================================")
 	fmt.Println("DOCKER SCAN")
 	fmt.Println("========================================")
