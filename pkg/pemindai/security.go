@@ -82,13 +82,13 @@ func (s *SecurityScanner) Run() *SecurityScanResult {
 	s.checkSSLCertificates(result)
 
 	// 10. Check weak SSL ciphers
-	// s.checkWeakSSLCiphers(result)  // Tahap 2
+	s.checkWeakSSLCiphers(result)
 
 	// 11. Check firewall status
-	// s.checkFirewallStatus(result)  // Tahap 2
+	s.checkFirewallStatus(result)
 
 	// 12. Check suspicious processes
-	// s.checkSuspiciousProcesses(result)  // Tahap 2
+	s.checkSuspiciousProcesses(result)
 
 	// === WEB SECURITY ===
 	// 13. Check security headers on web services
@@ -1050,5 +1050,160 @@ func (s *SecurityScanner) checkSUIDBinaries(result *SecurityScanResult) {
 			Description:   "Multiple SUID binaries that are not in the known-safe list",
 			Recommendation: "Review all SUID binaries and remove unnecessary ones",
 		})
+	}
+}
+
+// === NETWORK SECURITY CHECKS ===
+
+func (s *SecurityScanner) checkWeakSSLCiphers(result *SecurityScanResult) {
+	// Check for weak SSL/TLS ciphers on local ports
+	ports := []int{443, 8443, 993, 995}
+	hosts := []string{"localhost", "127.0.0.1"}
+
+	for _, host := range hosts {
+		for _, port := range ports {
+			address := net.JoinHostPort(host, strconv.Itoa(port))
+			conn, err := tls.Dial("tcp", address, &tls.Config{
+				InsecureSkipVerify: true,
+			})
+			if err != nil {
+				continue
+			}
+			defer conn.Close()
+
+			state := conn.ConnectionState()
+			// Check TLS version
+			if state.Version < tls.VersionTLS12 {
+				result.Issues = append(result.Issues, SecurityIssue{
+					Severity:      "HIGH",
+					Category:      "Network Security",
+					Title:         fmt.Sprintf("Outdated TLS version on %s:%d", host, port),
+					Description:   fmt.Sprintf("Using TLS %d.%d - deprecated and insecure", state.Version/256, state.Version%256),
+					Port:          port,
+					Recommendation: "Upgrade to TLS 1.2 or 1.3",
+				})
+			}
+		}
+	}
+}
+
+func (s *SecurityScanner) checkFirewallStatus(result *SecurityScanResult) {
+	// Check if firewall is enabled
+	foundFirewall := false
+	hasRules := false
+
+	// Check for firewalld
+	if _, err := exec.LookPath("firewalld"); err == nil {
+		foundFirewall = true
+		if !s.isServiceRunning("firewalld") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "Network Security",
+				Title:         "Firewalld installed but not active",
+				Description:   "Firewall is not actively filtering network traffic",
+				Recommendation: "Enable firewalld: systemctl enable --now firewalld",
+			})
+		}
+	}
+
+	// Check for iptables (rules indicate active firewall)
+	if _, err := exec.LookPath("iptables"); err == nil {
+		foundFirewall = true
+		cmd := exec.Command("sh", "-c", "iptables -L -n 2>/dev/null | grep -c DROP")
+		output, _ := cmd.Output()
+		outputStr := strings.TrimSpace(string(output))
+		if outputStr != "" && outputStr != "0" {
+			hasRules = true
+		}
+		// Check if iptables service exists and is running
+		if !hasRules && !s.isServiceRunning("iptables") {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "Network Security",
+				Title:         "iptables has no active rules",
+				Description:   "Firewall has no DROP/ACCEPT rules configured",
+				Recommendation: "Configure iptables rules or enable firewalld",
+			})
+		}
+	}
+
+	// Check for nftables
+	if _, err := exec.LookPath("nft"); err == nil {
+		foundFirewall = true
+		// nftables is more complex, check if there are active rules
+		cmd := exec.Command("sh", "-c", "nft list tables 2>/dev/null")
+		output, _ := cmd.Output()
+		if strings.TrimSpace(string(output)) == "" {
+			result.Issues = append(result.Issues, SecurityIssue{
+				Severity:      "HIGH",
+				Category:      "Network Security",
+				Title:         "nftables installed but no active rules",
+				Description:   "nftables has no active tables/rules",
+				Recommendation: "Configure nftables rules",
+			})
+		}
+	}
+
+	if !foundFirewall {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:      "MEDIUM",
+			Category:      "Network Security",
+			Title:         "No firewall detected",
+			Description:   "No firewall (firewalld/iptables/nft) is installed",
+			Recommendation: "Install and configure a firewall",
+		})
+	}
+}
+
+func (s *SecurityScanner) isServiceRunning(name string) bool {
+	cmd := exec.Command("systemctl", "is-active", name)
+	err := cmd.Run()
+	return err == nil
+}
+
+func (s *SecurityScanner) checkSuspiciousProcesses(result *SecurityScanResult) {
+	// Check for suspicious processes
+	suspiciousPatterns := []struct {
+		pattern string
+		severity string
+		description string
+	}{
+		{"nc -l", "HIGH", "Network listener (potential backdoor)"},
+		{"ncat -l", "HIGH", "Netcat listener (potential backdoor)"},
+		{"/dev/tcp", "HIGH", "Direct TCP manipulation (potential reverse shell)"},
+		{"msfconsole", "HIGH", "Metasploit framework detected"},
+		{"nikto", "MEDIUM", "Vulnerability scanner detected"},
+		{"sqlmap", "HIGH", "SQL injection tool detected"},
+		{"hydra", "HIGH", "Password brute-force tool detected"},
+		{"john", "MEDIUM", "Password cracking tool detected"},
+		{"hashcat", "MEDIUM", "Password cracking tool detected"},
+		{"tcpdump", "LOW", "Network sniffer running"},
+		{"wireshark", "LOW", "Network analyzer running"},
+		{"nmap", "LOW", "Network scanner running"},
+	}
+
+	// Get running processes
+	cmd := exec.Command("ps", "aux")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines[1:] { // Skip header
+		for _, sp := range suspiciousPatterns {
+			if strings.Contains(strings.ToLower(line), strings.ToLower(sp.pattern)) {
+				parts := strings.Fields(line)
+				if len(parts) > 10 {
+					result.Issues = append(result.Issues, SecurityIssue{
+						Severity:      sp.severity,
+						Category:      "Process Security",
+						Title:         fmt.Sprintf("Suspicious process: %s", parts[10]),
+						Description:   sp.description,
+						Recommendation: "Investigate this process if not expected",
+					})
+				}
+			}
+		}
 	}
 }
