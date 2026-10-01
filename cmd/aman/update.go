@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"aman/pkg/db"
+	"aman/pkg/output"
 )
 
 // Ecosystems yang didukung
@@ -151,7 +152,7 @@ func updateAmanSelf() {
 		return
 	}
 
-	currentVersion := Version
+	currentVersion := output.Version
 
 	// Bandingkan versi
 	if latestVersion == "" {
@@ -260,24 +261,24 @@ func cekVersiTerbaru() (string, string, error) {
 func compareVersions(current, latest string) int {
 	// Simple version comparison
 	// Returns: -1 if current < latest, 0 if equal, 1 if current > latest
-	
+
 	re := regexp.MustCompile(`[vV]?(\d+)\.(\d+)\.(\d+)`)
-	
+
 	cMatch := re.FindStringSubmatch(current)
 	lMatch := re.FindStringSubmatch(latest)
-	
+
 	if cMatch == nil || lMatch == nil {
 		return 0
 	}
-	
+
 	c1, _ := strconv.Atoi(cMatch[1])
 	c2, _ := strconv.Atoi(cMatch[2])
 	c3, _ := strconv.Atoi(cMatch[3])
-	
+
 	l1, _ := strconv.Atoi(lMatch[1])
 	l2, _ := strconv.Atoi(lMatch[2])
 	l3, _ := strconv.Atoi(lMatch[3])
-	
+
 	if c1 < l1 {
 		return -1
 	}

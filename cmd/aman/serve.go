@@ -12,6 +12,7 @@ import (
 
 	"aman/pkg/db"
 	"aman/pkg/deteksi"
+	"aman/pkg/output"
 	"aman/pkg/pemindai"
 	"aman/pkg/tipe"
 )
@@ -97,7 +98,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
 		"status":  "ok",
 		"service": "AMAN",
-		"version": Version,
+		"version": output.Version,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -147,11 +148,11 @@ func scanHandler(database *sql.DB) http.HandlerFunc {
 
 		// Response
 		response := map[string]interface{}{
-			"path":          req.Path,
-			"packages_found": len(paketList),
+			"path":            req.Path,
+			"packages_found":  len(paketList),
 			"vulnerabilities": kelemahan,
-			"vuln_count":    len(kelemahan),
-			"status":        "completed",
+			"vuln_count":      len(kelemahan),
+			"status":          "completed",
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -20,7 +20,7 @@ FROM alpine:3.19
 
 LABEL maintainer="AMAN Security Team"
 LABEL description="AMAN - Software Vulnerability Scanner"
-LABEL version="1.0.0"
+LABEL version="1.6.0"
 
 # Install CA certificates, SQLite, and curl for healthcheck
 RUN apk add --no-cache ca-certificates sqlite-libs curl

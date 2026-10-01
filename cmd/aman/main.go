@@ -25,7 +25,7 @@ func minInt(a, b int) int {
 }
 
 // Version AMAN
-const Version = "1.6.0"
+// Version moved to pkg/output (output.Version) to avoid duplication
 
 func main() {
 	if len(os.Args) == 1 {
@@ -37,7 +37,7 @@ func main() {
 	case "help", "--help", "-h":
 		printHelp()
 	case "version", "--version", "-v":
-		fmt.Printf("AMAN version %s\n", Version)
+		fmt.Printf("AMAN version %s\n", output.Version)
 	case "periksa":
 		jalankanPeriksa()
 	case "periksa-all", "scan-all":
@@ -82,6 +82,9 @@ func jalankanPeriksa() {
 				format = args[i+1]
 				i++
 			}
+		case "--help", "-h":
+			printHelp()
+			return
 		}
 	}
 
@@ -515,8 +518,8 @@ Penggunaan:
   aman version           - Tampilkan versi
   aman periksa --jenis <jenis> --sasaran <target> [flags]
                         - Jalankan pemeriksaan CVE
-  aman periksa-all      - Scan semua di server (overview)
-  aman periksa-security - Scan keamanan server (port, SSL, service)
+  aman periksa-all      - Scan overview server (versi lama, gunakan --jenis all)
+  aman periksa-security - Scan keamanan server (36+ checks)
   aman update           - Update semua (CVE + AMAN)
   aman update --cve     - Update database CVE saja
   aman update --self    - Update aplikasi AMAN saja
@@ -526,14 +529,22 @@ Jenis Pemeriksaan CVE:
   folder                - Periksa folder/berkas di komputer
   docker                - Periksa gambar Docker (container image)
   web                   - Periksa website (URL)
+  all                   - Scan lengkap: security + system packages CVE + folder + docker + web
+
+Flags:
+  --jenis, -j            Jenis pemeriksaan (folder/docker/web/all)
+  --sasaran, -s          Target (path/image/URL)
+  --online, -o           Cek CVE online (GitHub Advisories)
+  --format, -f           Format output: text (default), json, html (untuk --jenis all)
 
 Contoh:
   aman periksa --jenis folder --sasaran /app
   aman periksa --jenis docker --sasaran nginx:1.21
   aman periksa --jenis web --sasaran https://contoh.com
-  aman periksa-all              - Quick overview server
-  aman periksa-security         - Security check (port, SSL, service)
-  aman update
+  aman periksa --jenis all                      - Scan lengkap server
+  aman periksa --jenis all --format html        - Scan + report HTML
+  aman periksa-security                         - Security check 36+ checks
+  aman update                                   - Update semuanya
   aman serve --port 8080
 `)
 }
@@ -1154,7 +1165,7 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	report := &output.FullReport{
 		ScanInfo: output.ScanMeta{
 			Tool:      "AMAN",
-			Version:   Version,
+			Version:   output.Version,
 			Timestamp: time.Now().Format(time.RFC3339),
 			Target:    sasaran,
 		},

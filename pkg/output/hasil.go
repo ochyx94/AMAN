@@ -11,7 +11,7 @@ import (
 // FormatJSON mengubah hasil scan ke format JSON
 func FormatJSON(hasil tipe.HasilPemindaian) ([]byte, error) {
 	output := map[string]interface{}{
-		"aman_version":     "1.0.0",
+		"aman_version":     Version,
 		"scan_time":        time.Now().Format(time.RFC3339),
 		"sasaran":          hasil.Sasaran,
 		"jenis":           hasil.JenisPemindaian,

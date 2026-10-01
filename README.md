@@ -58,11 +58,11 @@ sudo ./deploy/install.sh
 ```
 
 ### Cara 4: Docker
-```bash
-# Pull dari Docker Hub
-docker pull aman-scanner/aman:latest
 
-# Atau build sendiri
+```bash
+# Build image sendiri (tidak ada image resmi di Docker Hub)
+git clone https://github.com/ochyx94/AMAN.git
+cd AMAN
 docker build -t aman-scanner:latest .
 
 # Jalankan
