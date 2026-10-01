@@ -24,7 +24,7 @@ func minInt(a, b int) int {
 }
 
 // Version AMAN
-const Version = "1.4.0"
+const Version = "1.5.0"
 
 func main() {
 	if len(os.Args) == 1 {
@@ -771,10 +771,15 @@ func printSecurityIssue(issue pemindai.SecurityIssue) {
 
 // pindaiAll - Comprehensive scan combining all checks
 func pindaiAll(sasaran string, checkOnline bool, format string) {
+	mulai := time.Now()
 	fmt.Println("========================================")
 	fmt.Println("AMAN - Comprehensive Security Scan")
 	fmt.Println("========================================")
 	fmt.Println()
+
+	// Collect data for report export
+	var reportSysVulns []output.ReportSysVuln
+	var reportWebPorts []int
 
 	// Initialize database
 	db, err := deteksi.InitDatabase()
@@ -959,6 +964,15 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 							Severity:   vuln.GetSeverity(),
 							Summary:    vuln.Summary,
 						})
+						reportSysVulns = append(reportSysVulns, output.ReportSysVuln{
+							PkgName:    pkgName,
+							Installed:  inst.Version,
+							Fixed:      fixedVersion,
+							AdvisoryID: advID,
+							CVEs:       vuln.ExtractCVEs(),
+							Severity:   vuln.GetSeverity(),
+							Summary:    vuln.Summary,
+						})
 					}
 				}
 			}
@@ -1013,10 +1027,10 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 
 	// Use exec.Command to list docker images
 	cmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}")
-	output, err := cmd.Output()
+	imgOutput, err := cmd.Output()
 	var imageCount int
 	if err == nil {
-		images := strings.Split(strings.TrimSpace(string(output)), "\n")
+		images := strings.Split(strings.TrimSpace(string(imgOutput)), "\n")
 		imageCount = 0
 		for _, img := range images {
 			if img != "" && img != "<none>:<none>" {
@@ -1048,6 +1062,7 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 		if err == nil {
 			conn.Close()
 			fmt.Printf("Port %d: %s detected\n", port, protocol)
+			reportWebPorts = append(reportWebPorts, port)
 		}
 	}
 	fmt.Println()
@@ -1058,12 +1073,74 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	fmt.Println("========================================")
 	fmt.Printf("Total Security Issues: %d\n", result.TotalIssues)
 	fmt.Printf("Total Packages Scanned: %d\n", totalPackages)
-	fmt.Printf("Total Vulnerabilities: %d\n", totalVulns)
+	fmt.Printf("Total Vulnerabilities: %d\n", totalVulns+systemVulns)
 	fmt.Printf("Docker Images: %d\n", imageCount)
 	fmt.Println("========================================")
+	fmt.Println()
+
+	// REPORT EXPORT (json/html)
+	report := &output.FullReport{
+		ScanInfo: output.ScanMeta{
+			Tool:      "AMAN",
+			Version:   Version,
+			Timestamp: time.Now().Format(time.RFC3339),
+			Target:    sasaran,
+		},
+		Security: output.SecurityReport{
+			TotalIssues: result.TotalIssues,
+			Critical:    result.Critical,
+			High:        result.High,
+			Medium:      result.Medium,
+			Low:         result.Low,
+		},
+		ServerInfo: output.ServerMeta{
+			Hostname: serverInfo.Hostname,
+			OS:       serverInfo.OS,
+			Kernel:   serverInfo.Kernel,
+			Docker:   serverInfo.DockerVer,
+		},
+		FolderScan: output.FolderReport{
+			Paths:         scanPaths,
+			TotalPackages: totalPackages,
+			TotalVulns:    totalVulns,
+		},
+		SystemVulns:  reportSysVulns,
+		DockerImages: imageCount,
+		WebPorts:     reportWebPorts,
+		DurationSec:  time.Since(mulai).Seconds(),
+	}
+	for _, iss := range result.Issues {
+		report.Security.Issues = append(report.Security.Issues, output.ReportIssue{
+			Severity:       iss.Severity,
+			Category:       iss.Category,
+			Title:          iss.Title,
+			Description:    iss.Description,
+			Recommendation: iss.Recommendation,
+			Port:           iss.Port,
+		})
+	}
+
+	switch format {
+	case "json":
+		jsonPath := fmt.Sprintf("aman-report-%s.json", time.Now().Format("20060102-150405"))
+		if err := output.ExportJSON(report, jsonPath); err != nil {
+			fmt.Printf("Error export JSON: %v\n", err)
+		} else {
+			fmt.Printf("📄 JSON report: %s\n", jsonPath)
+		}
+	case "html":
+		htmlPath := fmt.Sprintf("aman-report-%s.html", time.Now().Format("20060102-150405"))
+		if err := output.ExportHTML(report, htmlPath); err != nil {
+			fmt.Printf("Error export HTML: %v\n", err)
+		} else {
+			fmt.Printf("📄 HTML report: %s\n", htmlPath)
+		}
+	}
+
 	fmt.Println()
 	fmt.Println("Tips:")
 	fmt.Println("  Scan folder spesifik: aman periksa --jenis folder --sasaran /path")
 	fmt.Println("  Scan Docker image: aman periksa --jenis docker --sasaran nginx:latest")
 	fmt.Println("  Scan website: aman periksa --jenis web --sasaran https://example.com")
+	fmt.Println("  Export report:    aman periksa --jenis all --format html (atau --format json)")
 }
