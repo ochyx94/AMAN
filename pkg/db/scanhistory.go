@@ -8,13 +8,13 @@ import (
 
 // ScanFinding is one vulnerability finding in a scan
 type ScanFinding struct {
-	Package   string
-	Installed string
-	Fixed     string
-	Advisory  string
-	CVE       string // joined CVEs
-	Severity  string
-	Summary   string
+	Package   string `json:"package"`
+	Installed string `json:"installed"`
+	Fixed     string `json:"fixed"`
+	Advisory  string `json:"advisory"`
+	CVE       string `json:"cves"`
+	Severity  string `json:"severity"`
+	Summary   string `json:"summary"`
 }
 
 // InitScanHistory creates the scan history tables if not exist
@@ -201,4 +201,37 @@ func CleanupOldScans(db *sql.DB, keep int) error {
 	_, err = db.Exec(`
 		DELETE FROM scan_findings WHERE scan_id NOT IN (SELECT id FROM scan_history)`)
 	return err
+}
+
+// ScanSummary is a lightweight scan record for listings
+type ScanSummary struct {
+	ID             int64  `json:"id"`
+	Timestamp      string `json:"timestamp"`
+	TotalFindings  int    `json:"total_findings"`
+	SecurityIssues int    `json:"security_issues"`
+}
+
+// ListScans returns the most recent N scans, newest first
+func ListScans(db *sql.DB, limit int) ([]ScanSummary, error) {
+	if limit < 1 {
+		limit = 20
+	}
+	rows, err := db.Query(
+		"SELECT id, timestamp, total_findings, security_issues FROM scan_history ORDER BY id DESC LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ScanSummary
+	for rows.Next() {
+		var s ScanSummary
+		if err := rows.Scan(&s.ID, &s.Timestamp, &s.TotalFindings, &s.SecurityIssues); err != nil {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }

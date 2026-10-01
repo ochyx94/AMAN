@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,8 @@ func jalankanServe() {
 	http.HandleFunc("/api/v1/scan-all", scanAllHandler)
 	http.HandleFunc("/api/v1/security", securityScanHandler)
 	http.HandleFunc("/api/v1/scan-web", scanWebHandler(database))
+	http.HandleFunc("/api/v1/history", historyHandler(database))
+	http.HandleFunc("/api/v1/findings", findingsHandler(database))
 
 	// Serve dashboard static files
 	dashboardFS := http.Dir("dashboard")
@@ -260,5 +263,98 @@ func scanWebHandler(database *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(hasil)
+	}
+}
+
+// historyHandler GET /api/v1/history?limit=20
+// Returns list of past scans (newest first)
+func historyHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		limit := 20
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 50 {
+				limit = n
+			}
+		}
+
+		scans, err := db.ListScans(database, limit)
+		if err != nil {
+			http.Error(w, "DB error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Compute diffs between consecutive scans (newest vs previous)
+		type ScanWithDiff struct {
+			db.ScanSummary
+			New   int `json:"new_count"`
+			Fixed int `json:"fixed_count"`
+		}
+		result := make([]ScanWithDiff, 0, len(scans))
+		for i, s := range scans {
+			wd := ScanWithDiff{ScanSummary: s}
+			// scans[i] is newer than scans[i+1]
+			if i+1 < len(scans) {
+				curFindings, err1 := db.LoadFindings(database, s.ID)
+				prevFindings, err2 := db.LoadFindings(database, scans[i+1].ID)
+				if err1 == nil && err2 == nil {
+					diff := db.DiffScans(prevFindings, curFindings)
+					wd.New = len(diff.New)
+					wd.Fixed = len(diff.Fixed)
+				}
+			}
+			result = append(result, wd)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"scans": result,
+		})
+	}
+}
+
+// findingsHandler GET /api/v1/findings?scan=<id>
+// Returns findings of a specific scan, grouped summary
+func findingsHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		scanIDStr := r.URL.Query().Get("scan")
+		if scanIDStr == "" {
+			http.Error(w, "scan parameter required", http.StatusBadRequest)
+			return
+		}
+		scanID, err := strconv.ParseInt(scanIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid scan id", http.StatusBadRequest)
+			return
+		}
+
+		findings, err := db.LoadFindings(database, scanID)
+		if err != nil {
+			http.Error(w, "DB error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Severity summary
+		sevCount := map[string]int{}
+		for _, f := range findings {
+			sevCount[f.Severity]++
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"scan_id":  scanID,
+			"total":    len(findings),
+			"summary":  sevCount,
+			"findings": findings,
+		})
 	}
 }
