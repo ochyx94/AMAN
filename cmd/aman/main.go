@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"aman/pkg/db"
 	"aman/pkg/deteksi"
 	"aman/pkg/output"
 	"aman/pkg/pemindai"
@@ -24,7 +25,7 @@ func minInt(a, b int) int {
 }
 
 // Version AMAN
-const Version = "1.5.0"
+const Version = "1.6.0"
 
 func main() {
 	if len(os.Args) == 1 {
@@ -782,12 +783,12 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 	var reportWebPorts []int
 
 	// Initialize database
-	db, err := deteksi.InitDatabase()
+	scanDB, err := deteksi.InitDatabase()
 	if err != nil {
 		fmt.Printf("Error init database: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer scanDB.Close()
 
 	// 1. SECURITY SCAN (Comprehensive)
 	fmt.Println("========================================")
@@ -879,7 +880,7 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 			fmt.Printf("  Ditemukan %d paket...\n", len(paketList))
 			totalPackages += len(paketList)
 			for _, paket := range paketList {
-				kelemahan, _, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+				kelemahan, _, err := deteksi.DeteksiPaket(scanDB, paket, checkOnline)
 				if err == nil && len(kelemahan) > 0 {
 					totalVulns += len(kelemahan)
 					for _, k := range kelemahan {
@@ -983,6 +984,77 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 
 	fmt.Printf("\nSystem Packages Checked: %d\n", len(sysPackages))
 	fmt.Printf("System Vulnerabilities Found: %d\n", systemVulns)
+
+	// SCAN HISTORY: save + diff vs previous scan
+	var scanFindings []db.ScanFinding
+	for _, v := range systemVulnList {
+		scanFindings = append(scanFindings, db.ScanFinding{
+			Package:   v.PkgName,
+			Installed: v.Installed,
+			Fixed:     v.Fixed,
+			Advisory:  v.AdvisoryID,
+			CVE:       strings.Join(v.CVEs, ","),
+			Severity:  v.Severity,
+			Summary:   v.Summary,
+		})
+	}
+
+	// Init scan history tables
+	if err := db.InitScanHistory(scanDB); err != nil {
+		fmt.Printf("  (scan history init error: %v)\n", err)
+	}
+
+	// Load previous BEFORE saving current
+	prevScanID, prevTime, _ := db.LoadLatestScan(scanDB, 0)
+	var prevFindings []db.ScanFinding
+	if prevScanID > 0 {
+		prevFindings, _ = db.LoadFindings(scanDB, prevScanID)
+	}
+
+	if _, err := db.SaveScan(scanDB, result.TotalIssues, scanFindings); err != nil {
+		fmt.Printf("  (scan history save error: %v)\n", err)
+	}
+	db.CleanupOldScans(scanDB, 50) // keep last 50 scans
+
+	if prevScanID > 0 && len(prevFindings) >= 0 {
+		diff := db.DiffScans(prevFindings, scanFindings)
+		fmt.Println()
+		fmt.Println("========================================")
+		fmt.Println("PERBANDINGAN DENGAN SCAN TERAKHIR")
+		fmt.Println("========================================")
+		if !prevTime.IsZero() {
+			fmt.Printf("Scan terakhir: %s (%.0f jam lalu)\n", prevTime.Format("2006-01-02 15:04"), time.Since(prevTime).Hours())
+		}
+		fmt.Printf("Sebelumnya: %d temuan | Sekarang: %d temuan\n", diff.PrevCount, diff.CurCount)
+		fmt.Println()
+
+		fmt.Printf("🆕 CVE BARU: %d\n", len(diff.New))
+		for i, f := range diff.New {
+			if i >= 10 {
+				fmt.Printf("   ... dan %d lainnya\n", len(diff.New)-10)
+				break
+			}
+			fmt.Printf("   ⚠️  [%s] %s @ %s → %s (%s)\n", f.Severity, f.Package, f.Installed, f.CVE, f.Advisory)
+		}
+		fmt.Println()
+
+		fmt.Printf("✅ DIPERBAIKI: %d\n", len(diff.Fixed))
+		for i, f := range diff.Fixed {
+			if i >= 10 {
+				fmt.Printf("   ... dan %d lainnya\n", len(diff.Fixed)-10)
+				break
+			}
+			fmt.Printf("   ✓ %s @ %s → %s (%s)\n", f.Package, f.Installed, f.CVE, f.Advisory)
+		}
+		fmt.Println()
+
+		fmt.Printf("➡️  MASIH ADA: %d\n", diff.StillThere)
+		fmt.Println("========================================")
+		fmt.Println()
+	} else {
+		fmt.Println("(Scan pertama disimpan sebagai baseline — diff tersedia mulai scan berikutnya)")
+	}
+	fmt.Println()
 	if len(systemVulnList) > 0 {
 		fmt.Println("\n--- System Package Vulnerabilities ---")
 		// Sort: CRITICAL > HIGH > MEDIUM > LOW
