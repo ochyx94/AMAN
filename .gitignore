@@ -1,0 +1,14 @@
+# Binaries
+aman
+aman-linux-*
+build/
+
+# Databases
+*.db
+*.sqlite
+
+# Reports
+aman-report-*
+
+# Junk
+localhost:*

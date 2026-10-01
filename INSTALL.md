@@ -1,17 +1,29 @@
 # AMAN Installation Guide
 
-AMAN dapat diinstall dengan dua cara:
-1. **Systemd Service** - Untuk server bare-metal/VM
-2. **Docker** - Untuk environment container
+## Quick Install (One-Liner)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ochyx94/AMAN/main/deploy/install.sh | sudo bash
+```
+
+Otomatis: download binary → install ke /opt/aman → systemd service → enable & start → health check. Selesai ±10 detik.
+
+Update instalan lama: jalankan perintah yang sama (installer akan stop service, replace binary, start lagi).
 
 ---
 
-## Cara 1: Install sebagai Systemd Service (Bare Metal/VM)
+AMAN dapat diinstall dengan beberapa cara:
+1. **One-Liner Script** (recommended, di atas)
+2. **Systemd Service manual** - Untuk server bare-metal/VM
+3. **Docker** - Untuk environment container
+
+---
+
+## Cara 2: Install Manual sebagai Systemd Service (Bare Metal/VM)
 
 ### Prerequisites
-- Go 1.22+
+- Go 1.22+ (untuk build)
 - Root access
-- SQLite3
 
 ### Steps
 
@@ -88,7 +100,7 @@ sudo systemctl enable aman
 
 ---
 
-## Cara 2: Docker Installation
+## Cara 3: Docker Installation
 
 ### Prerequisites
 - Docker Engine 20.10+

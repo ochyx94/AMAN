@@ -5,10 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=aman
-Group=aman
+# AMAN scans the whole system (packages, files, ports), so it runs as root.
+User=root
+Group=root
 WorkingDirectory=/opt/aman
-ExecStart=/opt/aman/aman serve --config /opt/aman/config.toml
+ExecStart=/opt/aman/aman serve --port 8080
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
@@ -17,14 +18,9 @@ StandardError=journal
 
 # Environment
 Environment=AMAN_HOME=/opt/aman
-Environment=AMAN_DB=/opt/aman/data/aman.db
 
 # Security
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/aman/data
 
 [Install]
 WantedBy=multi-user.target

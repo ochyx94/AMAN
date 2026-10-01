@@ -8,25 +8,42 @@ AMAN adalah alat CLI untuk mendeteksi kelemahan (vulnerability) dalam software. 
 - **🐳 Scanner Docker** - Deteksi kelemahan di container images
 - **🌐 Scanner Web** - Deteksi kelemahan di website
 - **🖥️ Server Overview** - Scan semua di server (folder, docker, web) sekaligus
-- **🔐 Security Scanner** - Cek port terbuka, SSL, service security
+- **🔐 Security Scanner** - 36+ checks: kernel, SSH, sysctl, cron, SELinux, firewall, SUID, backup
+- **📦 System Package CVE** - CVE untuk paket OS (rpm/dpkg) via OSV.dev + rpmvercmp (ala Nessus)
+- **📄 Report Export** - Export hasil scan ke HTML/JSON
+- **📈 Scan History & Diff** - Riwayat scan + deteksi CVE baru vs sudah diperbaiki
 - **📦 Database CVE Lokal** - Tidak perlu internet untuk scan basic
-- **🔄 Auto-Update** - Update database CVE otomatis
-- **🌐 GitHub Advisories** - Cek kelemahan terbaru dari GitHub
+- **🔄 Auto-Update** - Update database CVE otomatis (npm, pip, go, rust, maven, nuget, rubygems)
 - **⚙️ Service Mode** - Jalankan sebagai HTTP API service
 - **🔧 Self-Update** - Update AMAN ke versi terbaru
 
 ## Install
 
-### Cara 1: Download Binary
+### Cara 1: One-Liner (Recommended) - langsung jadi systemd service
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ochyx94/AMAN/main/deploy/install.sh | sudo bash
+```
+
+Installer otomatis: download binary terbaru → install ke /opt/aman → buat systemd service → enable & start → verifikasi. Selesai ±10 detik.
+
+Service berjalan di port 8080:
+
+```bash
+systemctl status aman
+ curl http://localhost:8080/health
+```
+
+### Cara 2: Download Binary (tanpa service)
 
 ```bash
 # Download dari GitHub Releases
-wget https://github.com/ochyx94/AMAN/releases/latest/download/aman
-chmod +x aman
-sudo mv aman /usr/local/bin/
+wget https://github.com/ochyx94/AMAN/releases/latest/download/aman-linux-amd64
+chmod +x aman-linux-amd64
+sudo mv aman-linux-amd64 /usr/local/bin/aman
 ```
 
-### Cara 2: Build dari Source
+### Cara 3: Build dari Source
 
 ```bash
 # Clone repository
@@ -36,12 +53,11 @@ cd AMAN
 # Build
 go build -o aman ./cmd/aman
 
-# Install
-sudo mv aman /usr/local/bin/
+# Install + service (pakai binary hasil build)
+sudo ./deploy/install.sh
 ```
 
-### Cara 3: Docker (Recommended)
-
+### Cara 4: Docker
 ```bash
 # Pull dari Docker Hub
 docker pull aman-scanner/aman:latest
@@ -53,7 +69,7 @@ docker build -t aman-scanner:latest .
 docker run -d -p 8080:8080 --name aman aman-scanner:latest
 ```
 
-### Cara 4: Docker Compose
+### Cara 5: Docker Compose
 
 ```bash
 # Clone repository
