@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"aman/pkg/db"
@@ -55,6 +56,13 @@ func jalankanServe() {
 	http.HandleFunc("/api/v1/scan-web", scanWebHandler(database))
 	http.HandleFunc("/api/v1/history", historyHandler(database))
 	http.HandleFunc("/api/v1/findings", findingsHandler(database))
+	http.HandleFunc("/api/v1/fullscan", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			fullScanHandler()(w, r)
+		} else {
+			fullScanStatusHandler(database)(w, r)
+		}
+	})
 
 	// Serve dashboard static files
 	dashboardFS := http.Dir("dashboard")
@@ -356,5 +364,141 @@ func findingsHandler(database *sql.DB) http.HandlerFunc {
 			"summary":  sevCount,
 			"findings": findings,
 		})
+	}
+}
+
+// === Full Scan API (background scan with status polling) ===
+
+var (
+	fullScanMu       sync.Mutex
+	fullScanRunning  = false
+	fullScanStarted  time.Time
+	fullScanFinished time.Time
+	fullScanErr      error
+)
+
+// fullScanHandler POST /api/v1/fullscan - start background scan
+func fullScanHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		fullScanMu.Lock()
+		if fullScanRunning {
+			fullScanMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "already_running",
+				"started": fullScanStarted,
+			})
+			return
+		}
+		fullScanRunning = true
+		fullScanStarted = time.Now()
+		fullScanErr = nil
+		fullScanMu.Unlock()
+
+		// Optional target from body
+		target := ""
+		var req struct {
+			Target string `json:"target"`
+		}
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+				target = req.Target
+			}
+		}
+
+		// Run in background
+		go func(tgt string) {
+			defer func() {
+				fullScanMu.Lock()
+				fullScanRunning = false
+				fullScanFinished = time.Now()
+				fullScanMu.Unlock()
+			}()
+			defer func() {
+				if rec := recover(); rec != nil {
+					fullScanMu.Lock()
+					fullScanErr = fmt.Errorf("scan panic: %v", rec)
+					fullScanMu.Unlock()
+				}
+			}()
+			// Redirect stdout during scan to suppress terminal noise
+			oldStdout := os.Stdout
+			devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err == nil {
+				os.Stdout = devnull
+				defer func() {
+					os.Stdout = oldStdout
+					devnull.Close()
+				}()
+			}
+			pindaiAll(tgt, false, "") // offline, text output (suppressed)
+		}(target)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "started",
+			"started": fullScanStarted,
+			"message": "Scan berjalan di background. Poll /api/v1/fullscan untuk status.",
+		})
+	}
+}
+
+// fullScanStatusHandler GET /api/v1/fullscan - status + latest result
+func fullScanStatusHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		fullScanMu.Lock()
+		running := fullScanRunning
+		started := fullScanStarted
+		finished := fullScanFinished
+		scanErr := fullScanErr
+		fullScanMu.Unlock()
+
+		resp := map[string]interface{}{
+			"running": running,
+		}
+		if running {
+			resp["started"] = started
+			resp["elapsed_seconds"] = time.Since(started).Seconds()
+		} else if !finished.IsZero() {
+			resp["finished"] = finished
+			if scanErr != nil {
+				resp["error"] = scanErr.Error()
+			}
+
+			// Latest scan result from history
+			scanID, ts, err := db.LoadLatestScan(database, 0)
+			if err == nil && scanID > 0 {
+				findings, _ := db.LoadFindings(database, scanID)
+				sevCount := map[string]int{}
+				for _, f := range findings {
+					sevCount[f.Severity]++
+				}
+				resp["last_scan_id"] = scanID
+				resp["last_scan_time"] = ts
+				resp["total_findings"] = len(findings)
+				resp["severity_summary"] = sevCount
+			}
+
+			// Security issues count from latest scan record
+			scans, _ := db.ListScans(database, 1)
+			if len(scans) > 0 {
+				resp["last_security_issues"] = scans[0].SecurityIssues
+			}
+		} else {
+			resp["message"] = "Belum ada scan sejak server start. POST /api/v1/fullscan untuk mulai."
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}
 }
