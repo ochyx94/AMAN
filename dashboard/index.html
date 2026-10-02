@@ -71,16 +71,21 @@ tr:hover td { background: var(--card2); }
 .mono { font-family: ui-monospace, monospace; font-size: 12px; }
 .empty { color: var(--muted); text-align: center; padding: 24px; }
 
-/* Trend chart */
+/* Trend chart - stacked severity */
 .trend-wrap { display: flex; flex-direction: column; gap: 6px; }
 .trend-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 4px; }
-.trend { display: flex; align-items: flex-end; gap: 6px; height: 110px; padding-top: 6px; }
-.trend .bar { flex: 1; background: linear-gradient(180deg, var(--accent), #1d4ed8); border-radius: 6px 6px 0 0; min-height: 6px; position: relative; opacity: .9; cursor: pointer; }
-.trend .bar:hover { opacity: 1; box-shadow: 0 0 0 2px rgba(59,130,246,.4); }
-.trend .bar.active { background: linear-gradient(180deg, #60a5fa, var(--accent)); }
-.trend .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap; margin-bottom: 6px; z-index: 5; }
-.trend .bar:hover .tip { display: block; }
+.trend { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 14px; }
+.trend .bar { flex: 1; display: flex; flex-direction: column-reverse; border-radius: 6px; overflow: hidden; min-height: 10px; cursor: pointer; position: relative; max-width: 90px; margin: 0 auto; width: 100%; }
+.trend .bar:hover { box-shadow: 0 0 0 2px rgba(59,130,246,.5); }
+.trend .bar.active { box-shadow: 0 0 0 2px var(--accent); }
+.trend .seg { width: 100%; }
+.trend .seg.CRITICAL { background: var(--critical); }
+.trend .seg.HIGH { background: var(--high); }
+.trend .seg.MEDIUM { background: var(--medium); }
+.trend .seg.LOW { background: var(--low); }
 .trend .bar .val { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--muted); }
+.trend .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 7px 11px; border-radius: 6px; font-size: 11px; white-space: nowrap; margin-bottom: 6px; z-index: 5; text-align: left; }
+.trend .bar:hover .tip { display: block; }
 
 /* Filters */
 .filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -125,10 +130,28 @@ input[type=text]:focus { outline: 1px solid var(--accent); }
   </div>
 </div>
 
-<!-- Trend -->
+<!-- Web Scan -->
 <div class="panel">
-  <h2>Tren Findings <span class="sub">per scan</span></h2>
-  <div class="trend" id="trend"></div>
+  <h2>Web Scan <span class="sub">cek website: status, judul, server, headers</span></h2>
+  <div class="scan-row">
+    <input type="text" id="webUrl" placeholder="contoh.com atau https://contoh.com" style="width:300px">
+    <button class="secondary" onclick="runWebScan()">🌐 Scan Website</button>
+    <span id="webStatus"></span>
+  </div>
+  <div id="webResult" style="margin-top:12px"></div>
+</div>
+
+<!-- Severity composition per scan -->
+<div class="panel">
+  <h2>Komposisi Severity per Scan <span class="sub">klik bar untuk lihat findings · hover untuk detail</span></h2>
+  <div class="trend-wrap">
+    <div class="trend" id="trend"></div>
+    <div class="trend-meta">
+      <span>← scan lama</span>
+      <span id="trendSummary"></span>
+      <span>scan baru →</span>
+    </div>
+  </div>
 </div>
 
 <!-- History -->
@@ -242,25 +265,80 @@ function renderHistory() {
   `).join('');
 }
 
-function renderTrend() {
+async function renderTrend() {
   const el = document.getElementById('trend');
-  if (allScans.length < 1) { el.innerHTML = '<div class="empty">belum ada data</div>'; return; }
+  if (allScans.length < 1) { el.innerHTML = '<div class="empty">belum ada data</div>'; document.getElementById('trendSummary').textContent = ''; return; }
   const scans = [...allScans].reverse(); // oldest first
-  const max = Math.max(...scans.map(s => s.total_findings), 1);
-  const min = Math.min(...scans.map(s => s.total_findings));
-  
-  // If all values equal, use relative 70% height so bars aren't full-bleed identical
-  const heightOf = v => {
-    if (max === min) return 70;
-    return 12 + ((v - min) / (max - min)) * 88;
-  };
-  
-  el.innerHTML = scans.map(s => `
-    <div class="bar ${s.id === selectedScan ? 'active' : ''}" style="height:${heightOf(s.total_findings)}%" onclick="selectScan(${s.id})">
-      <span class="val">${s.total_findings}</span>
-      <div class="tip"><strong>scan #${s.id}</strong><br>${s.total_findings} CVE · ${s.security_issues} sec issues<br>${new Date(s.timestamp).toLocaleString('id-ID')}</div>
-    </div>
-  `).join('');
+
+  // Load severity breakdown per scan (cached)
+  const breakdowns = await Promise.all(scans.map(async s => {
+    if (s._sev) return s._sev;
+    try {
+      const r = await fetch(`${API}/api/v1/findings?scan=${s.id}`);
+      const d = await r.json();
+      s._sev = d.summary || {};
+    } catch { s._sev = {}; }
+    return s._sev;
+  }));
+
+  const maxTotal = Math.max(...scans.map(s => s.total_findings), 1);
+
+  el.innerHTML = scans.map((s, i) => {
+    const sev = breakdowns[i];
+    const total = s.total_findings || 0;
+    // stacked segments proportional to scan max (relative to global max total)
+    const segH = v => total ? (v / maxTotal) * 100 : 0;
+    const segs = ['CRITICAL','HIGH','MEDIUM','LOW']
+      .map(sv => {
+        const n = sev[sv] || 0;
+        return n > 0 ? `<div class="seg ${sv}" style="height:${segH(n)}%"></div>` : '';
+      }).join('');
+    return `
+    <div class="bar ${s.id === selectedScan ? 'active' : ''}" style="height:${Math.max(14, (total / maxTotal) * 100)}%" onclick="selectScan(${s.id})">
+      <span class="val">${total}</span>
+      <div class="tip"><strong>scan #${s.id}</strong> · ${new Date(s.timestamp).toLocaleString('id-ID')}<br>
+        ${sev.CRITICAL ? `🔴 ${sev.CRITICAL} critical ` : ''}${sev.HIGH ? `🟠 ${sev.HIGH} high` : ''}<br>
+        ${sev.MEDIUM ? `🟡 ${sev.MEDIUM} medium ` : ''}${sev.LOW ? `🔵 ${sev.LOW} low` : ''}
+      </div>
+      ${segs}
+    </div>`;
+  }).join('');
+
+  document.getElementById('trendSummary').textContent =
+    allScans.length < 2
+      ? 'jalankan scan lagi nanti untuk melihat perubahan'
+      : `${allScans.length} scan · terakhir ${allScans[0].total_findings} CVE vs sebelumnya ${allScans[1].total_findings} CVE`;
+}
+
+// ---------- web scan ----------
+async function runWebScan() {
+  const url = document.getElementById('webUrl').value.trim();
+  const st = document.getElementById('webStatus');
+  const out = document.getElementById('webResult');
+  if (!url) { st.textContent = 'isi URL dulu'; return; }
+  st.innerHTML = '<span class="spinner"></span>scanning…';
+  out.innerHTML = '';
+  try {
+    const r = await fetch(`${API}/api/v1/scan-web`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ url })
+    });
+    const d = await r.json();
+    st.textContent = '';
+    if (d.error) { out.innerHTML = `<div class="empty">error: ${esc(d.error)}</div>`; return; }
+    const code = d.StatusCode || 0;
+    const codeColor = code >= 200 && code < 300 ? 'var(--ok)' : code >= 400 ? 'var(--critical)' : 'var(--medium)';
+    out.innerHTML = `
+      <table>
+        <tr><td style="width:120px;color:var(--muted)">URL</td><td class="mono">${esc(d.URL)}</td></tr>
+        <tr><td style="color:var(--muted)">Status</td><td><strong style="color:${codeColor}">${code}</strong></td></tr>
+        <tr><td style="color:var(--muted)">Title</td><td>${esc(d.Title) || '—'}</td></tr>
+        <tr><td style="color:var(--muted)">Server</td><td class="mono">${esc(d.Server) || '—'}</td></tr>
+      </table>`;
+  } catch {
+    st.textContent = '';
+    out.innerHTML = '<div class="empty">scan gagal - cek URL</div>';
+  }
 }
 
 // ---------- findings ----------
