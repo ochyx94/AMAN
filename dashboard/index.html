@@ -51,9 +51,17 @@ button.secondary { background: var(--card2); border: 1px solid var(--border); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Tables */
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 th { text-align: left; padding: 9px 10px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border); }
-td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+/* Column widths: severity 90 / package 1fr / fixed 150 / cve 2fr / advisory 130 */
+td:nth-child(1), th:nth-child(1) { width: 90px; }
+td:nth-child(3), th:nth-child(3) { width: 150px; }
+td:nth-child(5), th:nth-child(5) { width: 130px; }
+.cve-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.cve-pill { font-family: ui-monospace, monospace; font-size: 11px; background: var(--card2); border: 1px solid var(--border); padding: 2px 7px; border-radius: 10px; cursor: pointer; }
+.cve-pill:hover { border-color: var(--accent); color: var(--accent); }
+.cve-more { font-size: 11px; color: var(--muted); align-self: center; }
 tr:hover td { background: var(--card2); }
 .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700; }
 .sev-CRITICAL { background: var(--critical); }
@@ -64,11 +72,15 @@ tr:hover td { background: var(--card2); }
 .empty { color: var(--muted); text-align: center; padding: 24px; }
 
 /* Trend chart */
-.trend { display: flex; align-items: flex-end; gap: 6px; height: 90px; padding-top: 6px; }
-.trend .bar { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 4px; position: relative; opacity: .85; }
-.trend .bar:hover { opacity: 1; }
-.trend .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap; margin-bottom: 4px; }
+.trend-wrap { display: flex; flex-direction: column; gap: 6px; }
+.trend-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 4px; }
+.trend { display: flex; align-items: flex-end; gap: 6px; height: 110px; padding-top: 6px; }
+.trend .bar { flex: 1; background: linear-gradient(180deg, var(--accent), #1d4ed8); border-radius: 6px 6px 0 0; min-height: 6px; position: relative; opacity: .9; cursor: pointer; }
+.trend .bar:hover { opacity: 1; box-shadow: 0 0 0 2px rgba(59,130,246,.4); }
+.trend .bar.active { background: linear-gradient(180deg, #60a5fa, var(--accent)); }
+.trend .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap; margin-bottom: 6px; z-index: 5; }
 .trend .bar:hover .tip { display: block; }
+.trend .bar .val { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--muted); }
 
 /* Filters */
 .filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -78,7 +90,7 @@ input[type=text] { background: var(--card2); border: 1px solid var(--border); co
 input[type=text]:focus { outline: 1px solid var(--accent); }
 
 /* History rows */
-.hist-row { display: grid; grid-template-columns: 60px 1fr 100px 90px 90px 80px; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; align-items: center; }
+.hist-row { display: grid; grid-template-columns: 56px 1fr 110px 120px 100px 100px; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; align-items: center; }
 .hist-row:hover { background: var(--card2); }
 .hist-row.active { background: var(--card2); }
 .hist-row .t { color: var(--muted); }
@@ -235,9 +247,18 @@ function renderTrend() {
   if (allScans.length < 1) { el.innerHTML = '<div class="empty">belum ada data</div>'; return; }
   const scans = [...allScans].reverse(); // oldest first
   const max = Math.max(...scans.map(s => s.total_findings), 1);
+  const min = Math.min(...scans.map(s => s.total_findings));
+  
+  // If all values equal, use relative 70% height so bars aren't full-bleed identical
+  const heightOf = v => {
+    if (max === min) return 70;
+    return 12 + ((v - min) / (max - min)) * 88;
+  };
+  
   el.innerHTML = scans.map(s => `
-    <div class="bar" style="height:${Math.max(4, (s.total_findings / max) * 100)}%">
-      <div class="tip">#${s.id}: ${s.total_findings} CVE<br>${new Date(s.timestamp).toLocaleString('id-ID')}</div>
+    <div class="bar ${s.id === selectedScan ? 'active' : ''}" style="height:${heightOf(s.total_findings)}%" onclick="selectScan(${s.id})">
+      <span class="val">${s.total_findings}</span>
+      <div class="tip"><strong>scan #${s.id}</strong><br>${s.total_findings} CVE · ${s.security_issues} sec issues<br>${new Date(s.timestamp).toLocaleString('id-ID')}</div>
     </div>
   `).join('');
 }
@@ -246,6 +267,7 @@ function renderTrend() {
 async function selectScan(id) {
   selectedScan = id;
   renderHistory();
+  renderTrend();
   const el = document.getElementById('findings');
   el.innerHTML = '<div class="empty">loading…</div>';
   try {
@@ -290,15 +312,22 @@ function renderFindings() {
   const order = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
   list = [...list].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9) || a.package.localeCompare(b.package));
 
-  const rows = list.slice(0, 100).map(f => `
+  const rows = list.slice(0, 100).map(f => {
+    const cves = (f.cves || '').split(',').filter(Boolean);
+    const show = cves.slice(0, 3);
+    const rest = cves.length - show.length;
+    const cveHtml = cves.length
+      ? `<span class="cve-list">${show.map(c => `<span class="cve-pill" title="cari ${esc(c)}" onclick="document.getElementById('searchBox').value='${esc(c)}';renderFindings()">${esc(c)}</span>`).join('')}${rest > 0 ? `<span class="cve-more">+${rest} lain</span>` : ''}</span>`
+      : '—';
+    return `
     <tr>
       <td><span class="badge sev-${f.severity}">${f.severity}</span></td>
-      <td><strong>${esc(f.package)}</strong> <span class="t" style="color:var(--muted)">@ ${esc(f.installed)}</span></td>
-      <td class="mono">${esc(f.fixed)}</td>
-      <td class="mono">${esc(f.cves) || '—'}</td>
-      <td class="mono">${esc(f.advisory)}</td>
-    </tr>
-  `).join('');
+      <td><strong>${esc(f.package)}</strong><br><span style="color:var(--muted);font-size:12px">terinstall ${esc(f.installed)}</span></td>
+      <td class="mono" style="color:var(--ok)">${esc(f.fixed)}</td>
+      <td>${cveHtml}</td>
+      <td class="mono" style="color:var(--muted)">${esc(f.advisory)}</td>
+    </tr>`;
+  }).join('');
 
   el.innerHTML = `<table>
     <thead><tr><th>Severity</th><th>Package @ Installed</th><th>Fixed</th><th>CVE</th><th>Advisory</th></tr></thead>
