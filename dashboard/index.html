@@ -65,26 +65,30 @@ td:nth-child(5), th:nth-child(5) { width: 130px; }
 tr:hover td { background: var(--card2); }
 .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700; }
 .sev-CRITICAL { background: var(--critical); }
-.sev-HIGH { background: var(--high); }
-.sev-MEDIUM { background: var(--medium); }
-.sev-LOW { background: var(--low); }
+.sev-HIGH { background: #f97316; }
+.sev-MEDIUM { background: #ca8a04; }
+.sev-LOW { background: #3b82f6; }
 .mono { font-family: ui-monospace, monospace; font-size: 12px; }
 .empty { color: var(--muted); text-align: center; padding: 24px; }
 
-/* Trend chart - stacked severity */
-.trend-wrap { display: flex; flex-direction: column; gap: 6px; }
+/* Trend chart - stacked severity, compact */
+.trend-wrap { display: flex; flex-direction: column; gap: 8px; }
+.trend-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+.trend-legend .li { display: flex; align-items: center; gap: 5px; }
+.trend-legend .sw { width: 11px; height: 11px; border-radius: 3px; }
 .trend-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 4px; }
-.trend { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 14px; }
-.trend .bar { flex: 1; display: flex; flex-direction: column-reverse; border-radius: 6px; overflow: hidden; min-height: 10px; cursor: pointer; position: relative; max-width: 90px; margin: 0 auto; width: 100%; }
-.trend .bar:hover { box-shadow: 0 0 0 2px rgba(59,130,246,.5); }
-.trend .bar.active { box-shadow: 0 0 0 2px var(--accent); }
+.trend { display: flex; align-items: flex-end; gap: 10px; height: 90px; padding-top: 16px; overflow-x: auto; }
+.trend .bar { width: 46px; min-width: 46px; display: flex; flex-direction: column-reverse; border-radius: 5px; overflow: hidden; min-height: 8px; cursor: pointer; position: relative; }
+.trend .bar:hover { filter: brightness(1.2); }
+.trend .bar.active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .trend .seg { width: 100%; }
-.trend .seg.CRITICAL { background: var(--critical); }
-.trend .seg.HIGH { background: var(--high); }
-.trend .seg.MEDIUM { background: var(--medium); }
-.trend .seg.LOW { background: var(--low); }
-.trend .bar .val { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--muted); }
-.trend .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 7px 11px; border-radius: 6px; font-size: 11px; white-space: nowrap; margin-bottom: 6px; z-index: 5; text-align: left; }
+.trend .seg.CRITICAL { background: #dc2626; }
+.trend .seg.HIGH { background: #f97316; }
+.trend .seg.MEDIUM { background: #eab308; }
+.trend .seg.LOW { background: #3b82f6; }
+.trend .bar .val { position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--text); font-weight: 600; }
+.trend .bar .lbl-id { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); }
+.trend .bar .tip { display: none; position: absolute; bottom: calc(100% + 20px); left: 50%; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border); padding: 7px 11px; border-radius: 6px; font-size: 11px; white-space: nowrap; z-index: 5; text-align: left; }
 .trend .bar:hover .tip { display: block; }
 
 /* Filters */
@@ -143,14 +147,16 @@ input[type=text]:focus { outline: 1px solid var(--accent); }
 
 <!-- Severity composition per scan -->
 <div class="panel">
-  <h2>Komposisi Severity per Scan <span class="sub">klik bar untuk lihat findings · hover untuk detail</span></h2>
+  <h2>Riwayat Severity per Scan</h2>
   <div class="trend-wrap">
-    <div class="trend" id="trend"></div>
-    <div class="trend-meta">
-      <span>← scan lama</span>
-      <span id="trendSummary"></span>
-      <span>scan baru →</span>
+    <div class="trend-legend">
+      <span class="li"><span class="sw" style="background:#dc2626"></span> Critical</span>
+      <span class="li"><span class="sw" style="background:#f97316"></span> High</span>
+      <span class="li"><span class="sw" style="background:#eab308"></span> Medium</span>
+      <span class="li"><span class="sw" style="background:#3b82f6"></span> Low</span>
+      <span style="margin-left:auto;color:var(--muted)" id="trendSummary"></span>
     </div>
+    <div class="trend" id="trend"></div>
   </div>
 </div>
 
@@ -286,28 +292,36 @@ async function renderTrend() {
   el.innerHTML = scans.map((s, i) => {
     const sev = breakdowns[i];
     const total = s.total_findings || 0;
-    // stacked segments proportional to scan max (relative to global max total)
-    const segH = v => total ? (v / maxTotal) * 100 : 0;
     const segs = ['CRITICAL','HIGH','MEDIUM','LOW']
       .map(sv => {
         const n = sev[sv] || 0;
-        return n > 0 ? `<div class="seg ${sv}" style="height:${segH(n)}%"></div>` : '';
+        return n > 0 ? `<div class="seg ${sv}" style="height:${(n / total) * 100}%"></div>` : '';
       }).join('');
     return `
-    <div class="bar ${s.id === selectedScan ? 'active' : ''}" style="height:${Math.max(14, (total / maxTotal) * 100)}%" onclick="selectScan(${s.id})">
+    <div class="bar ${s.id === selectedScan ? 'active' : ''}" onclick="selectScan(${s.id})">
       <span class="val">${total}</span>
       <div class="tip"><strong>scan #${s.id}</strong> · ${new Date(s.timestamp).toLocaleString('id-ID')}<br>
         ${sev.CRITICAL ? `🔴 ${sev.CRITICAL} critical ` : ''}${sev.HIGH ? `🟠 ${sev.HIGH} high` : ''}<br>
         ${sev.MEDIUM ? `🟡 ${sev.MEDIUM} medium ` : ''}${sev.LOW ? `🔵 ${sev.LOW} low` : ''}
       </div>
+      <span class="lbl-id">#${s.id}</span>
       ${segs}
     </div>`;
   }).join('');
 
-  document.getElementById('trendSummary').textContent =
-    allScans.length < 2
-      ? 'jalankan scan lagi nanti untuk melihat perubahan'
-      : `${allScans.length} scan · terakhir ${allScans[0].total_findings} CVE vs sebelumnya ${allScans[1].total_findings} CVE`;
+  // Meaningful summary: show change between last two scans
+  const sumEl = document.getElementById('trendSummary');
+  if (allScans.length < 2) {
+    sumEl.textContent = 'jalankan scan lagi untuk melihat tren';
+  } else {
+    const newest = allScans[0], prev = allScans[1];
+    const delta = newest.total_findings - prev.total_findings;
+    sumEl.innerHTML = delta === 0
+      ? `stabil di ${newest.total_findings} CVE`
+      : delta > 0
+        ? `<span class="delta-up">+${delta} CVE</span> sejak scan #${prev.id}`
+        : `<span class="delta-down">${delta} CVE</span> sejak scan #${prev.id}`;
+  }
 }
 
 // ---------- web scan ----------
