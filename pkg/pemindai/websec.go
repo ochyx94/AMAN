@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -73,14 +74,15 @@ func ScanWebSecurity(target string) (*WebSecurityReport, error) {
 		Cookies:       []WebCookieInfo{},
 	}
 
-	// Custom client that follows redirects but records the chain
-	var finalResp *http.Response
+	// Client that follows redirects but records the chain.
+	// InsecureSkipVerify=true here: TLS validity is checked separately in
+	// analyzeTLS() which REPORTS cert problems instead of failing outright.
 	chain := []string{}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			for _, v := range via {
@@ -93,22 +95,20 @@ func ScanWebSecurity(target string) (*WebSecurityReport, error) {
 		},
 	}
 
-	// Make request (HEAD first for speed; fall back to GET if HEAD not allowed)
-	resp, err := client.Head(target)
+	// Use GET directly: many servers hang/refuse HEAD (e.g. neverssl.com)
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("URL tidak valid: %v", err)
+	}
+	req.Header.Set("User-Agent", "AMAN-Security-Scanner/1.0")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("gagal akses %s: %v", target, err)
 	}
-	finalURL := resp.Request.URL.String()
-	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented {
-		resp.Body.Close()
-		resp, err = client.Get(target)
-		if err != nil {
-			return nil, fmt.Errorf("gagal akses %s: %v", target, err)
-		}
-	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) // drain small part
 	resp.Body.Close()
-	finalResp = resp
-	_ = finalResp
+	finalURL := resp.Request.URL.String()
 
 	report.FinalURL = finalURL
 	report.RedirectChain = chain
