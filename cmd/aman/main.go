@@ -390,6 +390,56 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		}
 	}
 
+	// W1: SECURITY AUDIT (headers, cookies, redirect, TLS)
+	webSec, secErr := pemindai.ScanWebSecurity(target)
+	if secErr == nil && format != "json" {
+		fmt.Println()
+		fmt.Println("--- Security Audit ---")
+
+		// TLS info
+		if webSec.TLS != nil {
+			tls := webSec.TLS
+			fmt.Printf("TLS:      %s | %s → %s (expires %s, %d hari)\n",
+				tls.TLSVersion, tls.Issuer, tls.Subject, tls.NotAfter, tls.DaysLeft)
+			for _, iss := range tls.Issues {
+				fmt.Printf("  ⚠️  TLS: %s\n", iss)
+			}
+		}
+
+		// Redirect chain
+		if len(webSec.RedirectChain) > 0 {
+			fmt.Printf("Redirect: %d langkah", len(webSec.RedirectChain))
+			for i, r := range webSec.RedirectChain {
+				fmt.Printf("\n  %d. %s", i+1, r)
+			}
+			fmt.Printf("\n  → %s\n", webSec.FinalURL)
+		}
+
+		// Header issues
+		if len(webSec.HeaderIssues) > 0 {
+			fmt.Printf("Header issues: %d\n", len(webSec.HeaderIssues))
+			for _, iss := range webSec.HeaderIssues {
+				fmt.Printf("  ⚠️  [%s] %s\n", iss.Severity, iss.Title)
+				fmt.Printf("      → %s\n", iss.Recommendation)
+			}
+		} else {
+			fmt.Println("Header issues: 0 (semua header penting ada)")
+		}
+
+		// Cookies
+		if len(webSec.Cookies) > 0 {
+			fmt.Printf("Cookies: %d\n", len(webSec.Cookies))
+			for _, ck := range webSec.Cookies {
+				if len(ck.Issues) > 0 {
+					fmt.Printf("  ⚠️  %s: %s\n", ck.Name, joinString(ck.Issues, ", "))
+				}
+			}
+		}
+	} else if secErr != nil && format != "json" {
+		fmt.Println()
+		fmt.Printf("--- Security Audit (gagal: %v) ---\n", secErr)
+	}
+
 	// Deteksi kelemahan
 	var semuaKelemahan []tipe.Kelemahan
 	sumberCek := tipe.SourceLocalDB
