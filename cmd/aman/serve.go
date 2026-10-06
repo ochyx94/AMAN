@@ -264,13 +264,35 @@ func scanWebHandler(database *sql.DB) http.HandlerFunc {
 		// Scan website
 		scanner := pemindai.NewPemindaiWeb()
 		hasil, err := scanner.Pindai(req.URL)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Web scan error: %v", err), http.StatusInternalServerError)
+
+		// W1 security audit runs independently of page fetch
+		secReport, secErr := pemindai.ScanWebSecurity(req.URL)
+
+		if err != nil && secErr != nil {
+			http.Error(w, fmt.Sprintf("Web scan error: %v (audit: %v)", err, secErr), http.StatusInternalServerError)
 			return
 		}
 
+		response := map[string]interface{}{}
+		if hasil != nil {
+			response["URL"] = hasil.URL
+			response["StatusCode"] = hasil.StatusCode
+			response["Title"] = hasil.Title
+			response["Server"] = hasil.Server
+			response["TechStack"] = hasil.TechStack
+			response["Links"] = hasil.Links
+			response["Paket"] = hasil.Paket
+		} else {
+			response["page_error"] = err.Error()
+		}
+		if secErr == nil {
+			response["security_audit"] = secReport
+		} else {
+			response["audit_error"] = secErr.Error()
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(hasil)
+		json.NewEncoder(w).Encode(response)
 	}
 }
 
