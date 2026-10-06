@@ -67,10 +67,17 @@ func (p *PemindaiWeb) Pindai(target string) (*HasilWebScan, error) {
 		TechStack: []string{},
 	}
 
-	// Fetch homepage
-	resp, err := p.Client.Get(target)
+	// Fetch homepage (retry once on transient errors: EOF/reset on flaky sites)
+	// Set explicit UA: default "Go-http-client" is blocked by some sites
+	fetchReq, _ := http.NewRequest("GET", target, nil)
+	fetchReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AMAN-Security-Scanner/1.0; +https://github.com/ochyx94/AMAN)")
+	resp, err := p.Client.Do(fetchReq)
 	if err != nil {
-		return nil, fmt.Errorf("Gagal fetch website: %v", err)
+		time.Sleep(500 * time.Millisecond)
+		resp, err = p.Client.Do(fetchReq)
+		if err != nil {
+			return nil, fmt.Errorf("Gagal fetch website: %v", err)
+		}
 	}
 	defer resp.Body.Close()
 

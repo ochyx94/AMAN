@@ -100,10 +100,30 @@ func ScanWebSecurity(target string) (*WebSecurityReport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("URL tidak valid: %v", err)
 	}
-	req.Header.Set("User-Agent", "AMAN-Security-Scanner/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AMAN-Security-Scanner/1.0; +https://github.com/ochyx94/AMAN)")
 
-	resp, err := client.Do(req)
+	// Retry once on transient network errors (EOF, connection reset - common on flaky sites)
+	var resp *http.Response
+	resp, err = client.Do(req)
 	if err != nil {
+		time.Sleep(500 * time.Millisecond)
+		resp, err = client.Do(req)
+	}
+	if err != nil {
+		// Resilience: even if HTTP fails, still try TLS analysis for HTTPS targets
+		if strings.HasPrefix(target, "https://") {
+			tlsInfo := analyzeTLS(target)
+			if tlsInfo != nil {
+				report.TLS = tlsInfo
+				report.HeaderIssues = append(report.HeaderIssues, SecurityIssue{
+					Severity:       "HIGH",
+					Category:       "Web Access",
+					Title:          fmt.Sprintf("website tidak bisa diakses: %v", err),
+					Recommendation: "Website down atau tidak merespon - periksa server/web server",
+				})
+				return report, nil
+			}
+		}
 		return nil, fmt.Errorf("gagal akses %s: %v", target, err)
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) // drain small part
