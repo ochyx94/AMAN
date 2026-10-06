@@ -509,9 +509,23 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		fmt.Printf("\nDitemukan:\n")
 		if len(hasil.Links) > 0 {
 			fmt.Printf("  - %d Links\n", len(hasil.Links))
+			// Tampilkan daftar link lengkap (max 20)
+			show := len(hasil.Links)
+			if show > 20 {
+				show = 20
+			}
+			for i := 0; i < show; i++ {
+				fmt.Printf("      %s\n", hasil.Links[i])
+			}
+			if len(hasil.Links) > 20 {
+				fmt.Printf("      ... dan %d links lainnya\n", len(hasil.Links)-20)
+			}
 		}
 		if len(hasil.TechStack) > 0 {
 			fmt.Printf("  - %d Tech Stack\n", len(hasil.TechStack))
+			for _, tech := range hasil.TechStack {
+				fmt.Printf("      %s\n", tech)
+			}
 		}
 		fmt.Printf("  - %d Paket (untuk CVE check)\n", len(hasil.Paket))
 		fmt.Println()
