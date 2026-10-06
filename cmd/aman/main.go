@@ -184,9 +184,9 @@ func pindaiFolder(sasaran string, checkOnline bool, format string) {
 			JenisPemindaian: "folder",
 			Durasi:          0,
 			Status:          status,
-			SumberCek:      sumberCek,
-			Paket:          paketList,
-			Kelemahan:      semuaKelemahan,
+			SumberCek:       sumberCek,
+			Paket:           paketList,
+			Kelemahan:       semuaKelemahan,
 		}
 		bytes, err := output.FormatJSON(hasil)
 		if err != nil {
@@ -285,9 +285,9 @@ func pindaiDocker(image string, checkOnline bool, format string) {
 			JenisPemindaian: "docker",
 			Durasi:          0,
 			Status:          status,
-			SumberCek:      sumberCek,
-			Paket:          paketList,
-			Kelemahan:      semuaKelemahan,
+			SumberCek:       sumberCek,
+			Paket:           paketList,
+			Kelemahan:       semuaKelemahan,
 		}
 		bytes, err := output.FormatJSON(hasil)
 		if err != nil {
@@ -346,12 +346,18 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 
 	// Jalankan scanner
 	p := pemindai.NewPemindaiWeb()
-	hasil, err := p.Pindai(target)
-	if err != nil {
+	hasil, pindaiErr := p.Pindai(target)
+
+	// Security audit runs INDEPENDENTLY - even if page fetch failed,
+	// TLS/headers info may still be retrievable (different code path)
+	webSec, secErr := pemindai.ScanWebSecurity(target)
+
+	if pindaiErr != nil && secErr != nil {
+		// Both failed - nothing more we can do
 		if format == "json" {
-			fmt.Printf(`{"error": "gagal scan web: %v"}`, err)
+			fmt.Printf(`{"error": "gagal scan web: %v"}`, pindaiErr)
 		} else {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Printf("Error: gagal fetch halaman (%v) dan security audit gagal juga (%v)\n", pindaiErr, secErr)
 			fmt.Println()
 			fmt.Println("Tips:")
 			fmt.Println("  - Pastikan URL benar (termasuk http:// atau https://)")
@@ -360,9 +366,14 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		}
 		os.Exit(1)
 	}
+	if pindaiErr != nil && format != "json" {
+		fmt.Printf("Warning: gagal fetch halaman penuh: %v\n", pindaiErr)
+		fmt.Println("(Security audit tetap dijalankan)")
+		fmt.Println()
+	}
 
-	// Tampilkan info website
-	if format != "json" {
+	// Tampilkan info website (hanya jika fetch sukses)
+	if format != "json" && hasil != nil {
 		fmt.Println()
 		fmt.Println("--- Informasi Website ---")
 		fmt.Printf("URL:      %s\n", hasil.URL)
@@ -390,8 +401,7 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 		}
 	}
 
-	// W1: SECURITY AUDIT (headers, cookies, redirect, TLS)
-	webSec, secErr := pemindai.ScanWebSecurity(target)
+	// W1: SECURITY AUDIT results (computed earlier)
 	if secErr == nil && format != "json" {
 		fmt.Println()
 		fmt.Println("--- Security Audit ---")
@@ -444,15 +454,18 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 	var semuaKelemahan []tipe.Kelemahan
 	sumberCek := tipe.SourceLocalDB
 
-	for _, paket := range hasil.Paket {
-		kelemahan, sumber, err := deteksi.DeteksiPaket(db, paket, checkOnline)
-		if err != nil {
-			continue
+	if hasil != nil {
+		for _, paket := range hasil.Paket {
+			kelemahan, sumber, err := deteksi.DeteksiPaket(db, paket, checkOnline)
+			if err != nil {
+				continue
+			}
+			semuaKelemahan = append(semuaKelemahan, kelemahan...)
+			if sumber == tipe.SourceGitHubAPI {
+				sumberCek = tipe.SourceGitHubAPI
+			}
 		}
-		semuaKelemahan = append(semuaKelemahan, kelemahan...)
-		if sumber == tipe.SourceGitHubAPI {
-			sumberCek = tipe.SourceGitHubAPI
-		}
+
 	}
 
 	// Tentukan status
@@ -462,13 +475,15 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 	if format == "json" {
 		// Convert web packages ke tipe.Paket
 		var paketList []tipe.Paket
-		for _, p := range hasil.Paket {
-			paketList = append(paketList, tipe.Paket{
-				Nama:    p.Nama,
-				Versi:   p.Versi,
-				Jenis:   p.Jenis,
-				Lokasi:  p.Lokasi,
-			})
+		if hasil != nil {
+			for _, p := range hasil.Paket {
+				paketList = append(paketList, tipe.Paket{
+					Nama:   p.Nama,
+					Versi:  p.Versi,
+					Jenis:  p.Jenis,
+					Lokasi: p.Lokasi,
+				})
+			}
 		}
 
 		hasilScan := tipe.HasilPemindaian{
@@ -476,9 +491,9 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 			JenisPemindaian: "web",
 			Durasi:          0,
 			Status:          status,
-			SumberCek:      sumberCek,
-			Paket:          paketList,
-			Kelemahan:      semuaKelemahan,
+			SumberCek:       sumberCek,
+			Paket:           paketList,
+			Kelemahan:       semuaKelemahan,
 		}
 		bytes, err := output.FormatJSON(hasilScan)
 		if err != nil {
@@ -490,7 +505,7 @@ func pindaiWeb(target string, checkOnline bool, format string) {
 	}
 
 	// Text format - Tampilkan summary untuk web scan
-	if len(hasil.Links) > 0 || len(hasil.TechStack) > 0 {
+	if hasil != nil && (len(hasil.Links) > 0 || len(hasil.TechStack) > 0) {
 		fmt.Printf("\nDitemukan:\n")
 		if len(hasil.Links) > 0 {
 			fmt.Printf("  - %d Links\n", len(hasil.Links))
@@ -916,7 +931,7 @@ func pindaiAll(sasaran string, checkOnline bool, format string) {
 
 	folderScanner := pemindai.PemindaiFolder{}
 	scanPaths := []string{}
-	
+
 	// Use sasaran if provided, otherwise scan common paths
 	if sasaran != "" {
 		scanPaths = append(scanPaths, sasaran)
